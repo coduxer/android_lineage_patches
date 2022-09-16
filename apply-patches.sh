@@ -5,7 +5,7 @@ set -e
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 source "$SCRIPT_DIR/utils.sh"
 
-cd "$SCRIPT_DIR/../lineageos/"
+cd "$SCRIPT_DIR/../../"
 clean-repo "hardware/google/pixel"
 apply-patch "hardware/google/pixel" "$SCRIPT_DIR/android_hardware_google_pixel--delete-kernel-headers.patch"
 clean-repo "build/make"
