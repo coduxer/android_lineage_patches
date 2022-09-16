@@ -1,0 +1,31 @@
+diff --git a/res/values/cm_strings.xml b/res/values/cm_strings.xml
+index e89ab77edd..6d1e81e7c3 100644
+--- a/res/values/cm_strings.xml
++++ b/res/values/cm_strings.xml
+@@ -169,6 +169,10 @@
+     <string name="touchscreen_gesture_settings_title">Touchscreen gestures</string>
+     <string name="touchscreen_gesture_settings_summary">Perform various touchscreen gestures for quick actions</string>
+ 
++    <!-- Three-fingers-swipe to screenshot -->
++    <string name="three_finger_gesture">Swipe to screenshot</string>
++    <string name="three_finger_gesture_summary">Swipe three fingers to take screenshot</string>
++
+     <!-- Wake on plug -->
+     <string name="wake_when_plugged_or_unplugged_title">Wake on plug</string>
+     <string name="wake_when_plugged_or_unplugged_summary">Turn the screen on when connecting or disconnecting a power source</string>
+diff --git a/res/xml/gestures.xml b/res/xml/gestures.xml
+index bbeb46febd..6a9466139f 100644
+--- a/res/xml/gestures.xml
++++ b/res/xml/gestures.xml
+@@ -113,4 +113,11 @@
+         android:title="@string/gesture_prevent_ringing_screen_title"
+         android:fragment="com.android.settings.gestures.PreventRingingGestureSettings"
+         settings:controller="com.android.settings.gestures.PreventRingingParentPreferenceController" />
++
++    <!-- Three-fingers-swipe to screenshot -->
++    <lineageos.preference.LineageSystemSettingSwitchPreference
++        android:key="three_finger_gesture"
++        android:title="@string/three_finger_gesture"
++        android:summary="@string/three_finger_gesture_summary"
++        android:defaultValue="false" />
+ </PreferenceScreen>

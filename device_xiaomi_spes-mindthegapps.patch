@@ -1,0 +1,12 @@
+diff --git a/lineage_spes.mk b/lineage_spes.mk
+index 2047c129..da9cef3d 100644
+--- a/lineage_spes.mk
++++ b/lineage_spes.mk
+@@ -15,6 +15,7 @@ $(call inherit-product, device/xiaomi/spes/device.mk)
+ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
+ 
+ # Additions
++$(call inherit-product-if-exists, vendor/gapps/arm64/arm64-vendor.mk)
+ $(call inherit-product-if-exists, vendor/gapps/config.mk)
+ $(call inherit-product-if-exists, vendor/prebuilt-apps/config.mk)
+ 

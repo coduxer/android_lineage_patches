@@ -1,0 +1,14 @@
+diff --git a/lineage_spes.mk b/lineage_spes.mk
+index 4da7e93..db52fe9 100644
+--- a/lineage_spes.mk
++++ b/lineage_spes.mk
+@@ -18,6 +18,9 @@ $(call inherit-product, vendor/lineage/config/common_full_phone.mk)
+ $(call inherit-product-if-exists, vendor/gapps/basic/config.mk)
+ $(call inherit-product-if-exists, vendor/prebuilt-apps/config.mk)
+ 
++#MicroG
++$(call inherit-product-if-exists, vendor/partner_gms/products/gms.mk)
++
+ # Camera
+ $(call inherit-product-if-exists, vendor/miuicamera/config.mk)
+ 

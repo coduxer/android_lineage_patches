@@ -1,0 +1,15 @@
+diff --git a/kernel_headers/Android.bp b/kernel_headers/Android.bp
+deleted file mode 100644
+index 660a592..0000000
+--- a/kernel_headers/Android.bp
++++ /dev/null
+@@ -1,9 +0,0 @@
+-package {
+-    default_applicable_licenses: ["Android-Apache-2.0"],
+-}
+-
+-kernel_headers {
+-    name: "qti_kernel_headers",
+-    vendor: true,
+-    recovery_available: true,
+-}

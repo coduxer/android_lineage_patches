@@ -1,0 +1,21 @@
+diff --git a/config/BoardConfigQcom.mk b/config/BoardConfigQcom.mk
+index a6e87659..411452ad 100644
+--- a/config/BoardConfigQcom.mk
++++ b/config/BoardConfigQcom.mk
+@@ -145,10 +145,12 @@ PRODUCT_SOONG_NAMESPACES += $(QCOM_SOONG_NAMESPACE)
+ 
+ # Add display-commonsys to PRODUCT_SOONG_NAMESPACES for QSSI supported platforms
+ ifneq ($(filter $(QSSI_SUPPORTED_PLATFORMS),$(TARGET_BOARD_PLATFORM)),)
+-PRODUCT_SOONG_NAMESPACES += \
+-    vendor/qcom/opensource/commonsys/display \
+-    vendor/qcom/opensource/commonsys-intf/display \
+-    vendor/qcom/opensource/display
++    ifneq ($(TARGET_USES_CUSTOM_DISPLAY_INTERFACE),true)
++        PRODUCT_SOONG_NAMESPACES += \
++        vendor/qcom/opensource/commonsys/display \
++        vendor/qcom/opensource/commonsys-intf/display \
++        vendor/qcom/opensource/display
++    endif
+ endif
+ 
+ # Add data-ipa-cfg-mgr to PRODUCT_SOONG_NAMESPACES if needed

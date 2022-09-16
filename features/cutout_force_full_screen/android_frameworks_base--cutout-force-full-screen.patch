@@ -1,0 +1,264 @@
+From 46766aad336b9c0bb00f944b0cf942408b2a3a7b Mon Sep 17 00:00:00 2001
+From: coduxer <coduxer@gmail.com>
+Date: Sat, 3 Sep 2022 21:30:25 +0300
+Subject: [PATCH] fwb: Implement cutout force full screen [1/2]
+
+Change-Id: I77c1d918b2a82b1da705567042d4cc788e440a4b
+---
+ core/java/android/app/IActivityManager.aidl   |   5 +
+ core/java/android/provider/Settings.java      |   6 +
+ .../android/internal/policy/PhoneWindow.java  |  11 ++
+ .../cutout/CutoutFullscreenController.java    | 105 ++++++++++++++++++
+ .../metrics_constants/metrics_constants.proto |   4 +
+ .../server/am/ActivityManagerService.java     |  16 +++
+ 6 files changed, 147 insertions(+)
+ create mode 100644 core/java/com/android/internal/util/fork/cutout/CutoutFullscreenController.java
+
+diff --git a/core/java/android/app/IActivityManager.aidl b/core/java/android/app/IActivityManager.aidl
+index b1ac8982e913..c5a6aeb4e98c 100644
+--- a/core/java/android/app/IActivityManager.aidl
++++ b/core/java/android/app/IActivityManager.aidl
+@@ -733,4 +733,9 @@ interface IActivityManager {
+      *  Should disable touch if three fingers to screen shot is active?
+      */
+     boolean isSwipeToScreenshotGestureActive();
++
++    /**
++     *  Force full screen for devices with cutout
++     */
++    boolean shouldForceCutoutFullscreen(in String packageName);
+ }
+diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
+index 1c5650b540f0..ae2bc7f5210a 100644
+--- a/core/java/android/provider/Settings.java
++++ b/core/java/android/provider/Settings.java
+@@ -5497,6 +5497,12 @@ public final class Settings {
+         @Deprecated
+         public static final String PARENTAL_CONTROL_LAST_UPDATE = Secure.PARENTAL_CONTROL_LAST_UPDATE;
+ 
++        /**
++         * Force full screen for devices with cutout
++         * @hide
++         */
++        public static final String FORCE_FULLSCREEN_CUTOUT_APPS = "force_full_screen_cutout_apps";
++
+         /**
+          * @deprecated Use {@link android.provider.Settings.Secure#PARENTAL_CONTROL_REDIRECT_URL}
+          * instead
+diff --git a/core/java/com/android/internal/policy/PhoneWindow.java b/core/java/com/android/internal/policy/PhoneWindow.java
+index bfc57b403a41..f06d3676b96a 100644
+--- a/core/java/com/android/internal/policy/PhoneWindow.java
++++ b/core/java/com/android/internal/policy/PhoneWindow.java
+@@ -31,6 +31,7 @@ import static android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATIO
+ import static android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS;
+ import static android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+ import static android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
++import static android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+ import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_FORCE_DRAW_BAR_BACKGROUNDS;
+ import static android.view.WindowManager.LayoutParams.PRIVATE_FLAG_NO_MOVE_ANIMATION;
+ 
+@@ -2531,6 +2532,16 @@ public class PhoneWindow extends Window implements MenuBuilder.Callback {
+             params.layoutInDisplayCutoutMode = mode;
+         }
+ 
++        if (ActivityManager.isSystemReady()) {
++            try {
++                String packageName = context.getBasePackageName();
++                if (ActivityManager.getService().shouldForceCutoutFullscreen(packageName)){
++                    params.layoutInDisplayCutoutMode = LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
++                }
++            } catch (RemoteException e) {
++            }
++        }
++
+         if (mAlwaysReadCloseOnTouchAttr || getContext().getApplicationInfo().targetSdkVersion
+                 >= android.os.Build.VERSION_CODES.HONEYCOMB) {
+             if (a.getBoolean(
+diff --git a/core/java/com/android/internal/util/fork/cutout/CutoutFullscreenController.java b/core/java/com/android/internal/util/fork/cutout/CutoutFullscreenController.java
+new file mode 100644
+index 000000000000..90346b0ec475
+--- /dev/null
++++ b/core/java/com/android/internal/util/fork/cutout/CutoutFullscreenController.java
+@@ -0,0 +1,105 @@
++/**
++ * Copyright (C) 2018 The LineageOS project
++ * Copyright (C) 2019 The PixelExperience project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.internal.util.fork.cutout;
++
++import android.content.ContentResolver;
++import android.content.Context;
++import android.content.res.Resources;
++import android.database.ContentObserver;
++import android.os.Handler;
++import android.os.Looper;
++import android.os.UserHandle;
++import android.text.TextUtils;
++
++import java.util.Arrays;
++import java.util.HashSet;
++import java.util.Set;
++
++import android.provider.Settings;
++
++public class CutoutFullscreenController extends ContentObserver {
++    private Set<String> mApps = new HashSet<>();
++    private Context mContext;
++
++    private final boolean isAvailable;
++
++    public CutoutFullscreenController(Handler handler, Context context) {
++        super(handler);
++        mContext = context;
++
++	    final String displayCutout =
++            mContext.getResources().getString(com.android.internal.R.string.config_mainBuiltInDisplayCutout);
++        isAvailable = !TextUtils.isEmpty(displayCutout);
++    }
++
++    public void registerObserver() {
++        if (isAvailable) {
++            mContext.getContentResolver().registerContentObserver(Settings.System.getUriFor(
++                    Settings.System.FORCE_FULLSCREEN_CUTOUT_APPS), false, this,
++                    UserHandle.USER_ALL);
++
++            update();
++        }
++    }
++
++    public boolean isSupported() {
++        return isAvailable;
++    }
++
++    public boolean shouldForceCutoutFullscreen(String packageName) {
++        return isSupported() && mApps.contains(packageName);
++    }
++
++    public Set<String> getApps() {
++        return mApps;
++    }
++
++    public void addApp(String packageName) {
++        mApps.add(packageName);
++        Settings.System.putString(mContext.getContentResolver(),
++                Settings.System.FORCE_FULLSCREEN_CUTOUT_APPS, String.join(",", mApps));
++    }
++
++    public void removeApp(String packageName) {
++        mApps.remove(packageName);
++        Settings.System.putString(mContext.getContentResolver(),
++                Settings.System.FORCE_FULLSCREEN_CUTOUT_APPS, String.join(",", mApps));
++    }
++
++    public void setApps(Set<String> apps) {
++        mApps = apps;
++    }
++
++    @Override
++    public void onChange(boolean selfChange) {
++        update();
++    }
++
++    private void update() {
++        ContentResolver resolver = mContext.getContentResolver();
++
++        String apps = Settings.System.getStringForUser(resolver,
++                Settings.System.FORCE_FULLSCREEN_CUTOUT_APPS,
++                UserHandle.USER_CURRENT);
++        if (apps != null) {
++            setApps(new HashSet<>(Arrays.asList(apps.split(","))));
++        } else {
++            setApps(new HashSet<>());
++        }
++    }
++}
+diff --git a/proto/src/metrics_constants/metrics_constants.proto b/proto/src/metrics_constants/metrics_constants.proto
+index 3f712dd1492f..d7f54e856271 100644
+--- a/proto/src/metrics_constants/metrics_constants.proto
++++ b/proto/src/metrics_constants/metrics_constants.proto
+@@ -7435,5 +7435,9 @@ message MetricsEvent {
+     // ---- End Q Constants, all Q constants go above this line ----
+     // Add new aosp constants above this line.
+     // END OF AOSP CONSTANTS
++
++    // Fork Lineage
++    FORKLINEAGE = 3000;
++
+   }
+ }
+diff --git a/services/core/java/com/android/server/am/ActivityManagerService.java b/services/core/java/com/android/server/am/ActivityManagerService.java
+index c3e654f30e22..af97b94dfd02 100644
+--- a/services/core/java/com/android/server/am/ActivityManagerService.java
++++ b/services/core/java/com/android/server/am/ActivityManagerService.java
+@@ -402,6 +402,8 @@ import com.android.server.wm.WindowProcessController;
+ 
+ import lineageos.providers.LineageSettings;
+ 
++import com.android.internal.util.fork.cutout.CutoutFullscreenController;
++
+ import dalvik.system.VMRuntime;
+ 
+ import libcore.util.EmptyArray;
+@@ -1518,6 +1520,8 @@ public class ActivityManagerService extends IActivityManager.Stub
+     final SwipeToScreenshotObserver mSwipeToScreenshotObserver;
+     private boolean mIsSwipeToScrenshotEnabled;
+ 
++    private CutoutFullscreenController mCutoutFullscreenController;
++
+     /**
+      * Used to notify activity lifecycle events.
+      */
+@@ -2247,6 +2251,7 @@ public class ActivityManagerService extends IActivityManager.Stub
+         mEnableOffloadQueue = false;
+         mFgBroadcastQueue = mBgBroadcastQueue = mOffloadBroadcastQueue = null;
+         mSwipeToScreenshotObserver = null;
++        mCutoutFullscreenController = null;
+     }
+ 
+     // Note: This method is invoked on the main thread but may need to attach various
+@@ -2374,6 +2379,9 @@ public class ActivityManagerService extends IActivityManager.Stub
+         mPendingStartActivityUids = new PendingStartActivityUids(mContext);
+         mTraceErrorLogger = new TraceErrorLogger();
+         mSwipeToScreenshotObserver = new SwipeToScreenshotObserver(mHandler, mContext);
++
++        // Force full screen for devices with cutout
++        mCutoutFullscreenController = new CutoutFullscreenController(mHandler, mContext);
+     }
+ 
+     public void setSystemServiceManager(SystemServiceManager mgr) {
+@@ -7548,6 +7556,7 @@ public class ActivityManagerService extends IActivityManager.Stub
+         mAppErrors.loadAppsNotReportingCrashesFromConfig(res.getString(
+                 com.android.internal.R.string.config_appsNotReportingCrashes));
+         mSwipeToScreenshotObserver.registerObserver();
++        mCutoutFullscreenController.registerObserver();
+     }
+ 
+     /**
+@@ -17357,4 +17366,11 @@ public class ActivityManagerService extends IActivityManager.Stub
+             return mIsSwipeToScrenshotEnabled && SystemProperties.getBoolean("sys.android.screenshot", false);
+         }
+     }
++
++    @Override
++    public boolean shouldForceCutoutFullscreen(String packageName) {
++        synchronized (this) {
++            return mCutoutFullscreenController.shouldForceCutoutFullscreen(packageName);
++        }
++    }
+ }
+-- 
+2.37.3
+

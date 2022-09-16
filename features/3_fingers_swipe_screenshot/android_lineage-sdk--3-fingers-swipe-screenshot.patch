@@ -1,0 +1,29 @@
+diff --git a/sdk/src/java/lineageos/providers/LineageSettings.java b/sdk/src/java/lineageos/providers/LineageSettings.java
+index f4496804..f5ddf49e 100644
+--- a/sdk/src/java/lineageos/providers/LineageSettings.java
++++ b/sdk/src/java/lineageos/providers/LineageSettings.java
+@@ -2027,6 +2027,15 @@ public final class LineageSettings {
+         public static final Validator FORCE_SHOW_NAVBAR_VALIDATOR =
+                 sBooleanValidator;
+ 
++        /**
++         * Swipe to screenshot
++         */
++        public static final String THREE_FINGER_GESTURE = "three_finger_gesture";
++
++        /** @hide */
++        public static final Validator THREE_FINGER_GESTURE_VALIDATOR =
++                sBooleanValidator;
++
+         /**
+          * Whether to take partial screenshot with volume down + power click.
+          */
+@@ -2306,6 +2315,8 @@ public final class LineageSettings {
+                     LONG_SCREEN_APPS_VALIDATOR);
+             VALIDATORS.put(FORCE_SHOW_NAVBAR,
+                     FORCE_SHOW_NAVBAR_VALIDATOR);
++            VALIDATORS.put(THREE_FINGER_GESTURE,
++                    THREE_FINGER_GESTURE_VALIDATOR);
+             VALIDATORS.put(CLICK_PARTIAL_SCREENSHOT,
+                     CLICK_PARTIAL_SCREENSHOT_VALIDATOR);
+             VALIDATORS.put(ENABLE_TASKBAR,
