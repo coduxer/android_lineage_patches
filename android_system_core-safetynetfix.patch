@@ -1,323 +1,80 @@
-From 34ad07a09e9354af5f60f186ca011e3c05d02e13 Mon Sep 17 00:00:00 2001
+From 728aa1aa741cbfc1fc553dd7aa2938d71fc3b617 Mon Sep 17 00:00:00 2001
 From: Danny Lin <danny@kdrag0n.dev>
 Date: Wed, 7 Oct 2020 00:24:54 -0700
-Subject: [PATCH 1/7] init: Set properties to make SafetyNet pass
+Subject: [PATCH] init: Report valid verified boot for SafetyNet checks
 
-Google's SafetyNet integrity checks will check the values of these
-properties when performing basic attestation. Setting fake values helps
-us pass basic SafetyNet with no Magisk Hide or kernel patches necessary.
+Google's SafetyNet attestation includes checks for the integrity of the
+verified boot chain, as reported by some ro.boot.* properties normally
+passed by the bootloader. Unconditionally reporting successful, valid
+values helps pass SafetyNet checks, as long as other system state is
+intact.
 
-Note that these properties need to be set very early, before parsing the
-kernel command-line, as they are read-only properties that the bootloader
-sets using androidboot kernel arguments. The bootloader's real values
-cause SafetyNet to fail with an unlocked bootloader and/or custom
-software because the verified boot chain is broken in that case.
+However, the real prop values must be retained in recovery/fastbootd in
+order for fastbootd to allow/deny flashing correctly based on the
+bootloader lock state. This is accomplished by checking androidboot keys
+in the kernel cmdline and bootconfig (necessary on Pixel 6), and not
+spoofing anything if the boot isn't a normal full-blown Android boot.
 
-Change-Id: I66d23fd91d82906b00d5eb020668f01ae83ec31f
-Signed-off-by: neobuddy89 <neobuddy89@gmail.com>
+Change-Id: Idecb5957f3d94512a4cfb98c1a52305fe2ddb473
 ---
- init/property_service.cpp | 15 +++++++++++++++
- 1 file changed, 15 insertions(+)
+ init/property_service.cpp | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
 
 diff --git a/init/property_service.cpp b/init/property_service.cpp
-index 5a8fc541827..729fbd7a054 100644
+index 8db414a97c..ac460db8d2 100644
 --- a/init/property_service.cpp
 +++ b/init/property_service.cpp
-@@ -1251,6 +1251,15 @@ static void ProcessBootconfig() {
+@@ -1268,6 +1268,7 @@ static void ProcessKernelDt() {
+ }
+ 
+ constexpr auto ANDROIDBOOT_PREFIX = "androidboot."sv;
++constexpr auto ANDROIDBOOT_MODE = "androidboot.mode"sv;
+ 
+ static void ProcessKernelCmdline() {
+     ImportKernelCmdline([&](const std::string& key, const std::string& value) {
+@@ -1286,6 +1287,35 @@ static void ProcessBootconfig() {
      });
  }
  
 +static void SetSafetyNetProps() {
++    // Check whether this is a normal boot, and whether the bootloader is actually locked
++    auto isNormalBoot = true; // no prop = normal boot
++    // This runs before keys are set as props, so we need to process them ourselves.
++    ImportKernelCmdline([&](const std::string& key, const std::string& value) {
++        if (key == ANDROIDBOOT_MODE && value != "normal") {
++            isNormalBoot = false;
++        }
++    });
++    ImportBootconfig([&](const std::string& key, const std::string& value) {
++        if (key == ANDROIDBOOT_MODE && value != "normal") {
++            isNormalBoot = false;
++        }
++    });
 +
++    // Bail out if this is recovery, fastbootd, or anything other than a normal boot.
++    // fastbootd, in particular, needs the real values so it can allow flashing on
++    // unlocked bootloaders.
++    if (!isNormalBoot) {
++        return;
++    }
++
++    // Spoof properties
 +    InitPropertySet("ro.boot.flash.locked", "1");
-+    InitPropertySet("ro.boot.vbmeta.device_state", "locked");
 +    InitPropertySet("ro.boot.verifiedbootstate", "green");
 +    InitPropertySet("ro.boot.veritymode", "enforcing");
-+
++    InitPropertySet("ro.boot.vbmeta.device_state", "locked");
 +}
 +
  void PropertyInit() {
      selinux_callback cb;
      cb.func_audit = PropertyAuditCallback;
-@@ -1265,6 +1274,12 @@ void PropertyInit() {
+@@ -1300,6 +1330,9 @@ void PropertyInit() {
          LOG(FATAL) << "Failed to load serialized property info file";
      }
  
-+    // Report a valid verified boot chain to make Google SafetyNet integrity
-+    // checks pass. This needs to be done before parsing the kernel cmdline as
-+    // these properties are read-only and will be set to invalid values with
-+    // androidboot cmdline arguments.
-+      SetSafetyNetProps();
++    // Report valid verified boot chain to help pass Google SafetyNet integrity checks
++    SetSafetyNetProps();
 +
      // If arguments are passed both on the command line and in DT,
      // properties set in DT always have priority over the command-line ones.
      ProcessKernelDt();
-
-From 5e449f441f3e8a2e17a6d45522a326392fc9a654 Mon Sep 17 00:00:00 2001
-From: Jarl-Penguin <jarlpenguin@outlook.com>
-Date: Wed, 16 Jun 2021 11:28:46 +0000
-Subject: [PATCH 2/7] init: Don't spoof SafetyNet properties in recovery mode
-
-Change-Id: Ib6d3808c3b8f3e0cffab685a24d3cdd436b0fe9b
-Signed-off-by: neobuddy89 <neobuddy89@gmail.com>
----
- init/property_service.cpp | 2 ++
- 1 file changed, 2 insertions(+)
-
-diff --git a/init/property_service.cpp b/init/property_service.cpp
-index 729fbd7a054..6cd62251d9c 100644
---- a/init/property_service.cpp
-+++ b/init/property_service.cpp
-@@ -1278,7 +1278,9 @@ void PropertyInit() {
-     // checks pass. This needs to be done before parsing the kernel cmdline as
-     // these properties are read-only and will be set to invalid values with
-     // androidboot cmdline arguments.
-+    if (!IsRecoveryMode()) {
-       SetSafetyNetProps();
-+    }
- 
-     // If arguments are passed both on the command line and in DT,
-     // properties set in DT always have priority over the command-line ones.
-
-From b699165b524d63407609d38041fa2b92aba0da4d Mon Sep 17 00:00:00 2001
-From: Michael Bestas <mkbestas@lineageos.org>
-Date: Sat, 24 Mar 2018 21:31:02 +0200
-Subject: [PATCH 3/7] init: Don't run update_sys_usb_config if /data isn't
- mounted
-
-* When /data is not mounted / not yet decrypted,
-  persistent property overrides are not loaded yet
-  so persist.sys.usb.config value is the one from default.prop.
-
-  This caused adb to always be disabled on boot even if
-  it was enabled in development settings.
-
-Change-Id: Ic2a51591ad6b77f3463cfa91e9d7362410a021f2
-Signed-off-by: neobuddy89 <neobuddy89@gmail.com>
----
- init/property_service.cpp | 4 +++-
- 1 file changed, 3 insertions(+), 1 deletion(-)
-
-diff --git a/init/property_service.cpp b/init/property_service.cpp
-index 6cd62251d9c..736617acd0d 100644
---- a/init/property_service.cpp
-+++ b/init/property_service.cpp
-@@ -1107,7 +1107,9 @@ void PropertyLoadBootDefaults() {
-     property_derive_legacy_build_fingerprint();
-     property_initialize_ro_cpu_abilist();
- 
--    update_sys_usb_config();
-+    if (android::base::GetBoolProperty("ro.persistent_properties.ready", false)) {
-+        update_sys_usb_config();
-+    }
- }
- 
- bool LoadPropertyInfoFromFile(const std::string& filename,
-
-From d63be8337de07b9644233c52d660b6311b7596e2 Mon Sep 17 00:00:00 2001
-From: Danny Lin <danny@kdrag0n.dev>
-Date: Tue, 12 Oct 2021 02:32:41 -0700
-Subject: [PATCH 4/7] fastboot: Revert to Android 11 method of checking lock
- status
-
-Now that we're setting system-wide properties for SafetyNet, which
-includes ro.boot.verifiedbootstate=green, fastbootd always detects the
-bootloader as being locked. Revert to the Android 11 method of reading
-directly from the kernel cmdline to work arround the issue.
-
-Change-Id: I57f6d48acddb29748778053edf354d7bd8994bd7
-Signed-off-by: neobuddy89 <neobuddy89@gmail.com>
----
- fastboot/device/utility.cpp | 7 ++++++-
- 1 file changed, 6 insertions(+), 1 deletion(-)
-
-diff --git a/fastboot/device/utility.cpp b/fastboot/device/utility.cpp
-index 07ad9028c33..f9267e0eb2a 100644
---- a/fastboot/device/utility.cpp
-+++ b/fastboot/device/utility.cpp
-@@ -204,7 +204,12 @@ std::vector<std::string> ListPartitions(FastbootDevice* device) {
- }
- 
- bool GetDeviceLockStatus() {
--    return android::base::GetProperty("ro.boot.verifiedbootstate", "") != "orange";
-+    std::string cmdline;
-+    // Return lock status true if unable to read kernel command line.
-+    if (!android::base::ReadFileToString("/proc/cmdline", &cmdline)) {
-+        return true;
-+    }
-+    return cmdline.find("androidboot.verifiedbootstate=orange") == std::string::npos;
- }
- 
- bool UpdateAllPartitionMetadata(FastbootDevice* device, const std::string& super_name,
-
-From 725592b084cec7129e8465b72c5083bfea6a3fe8 Mon Sep 17 00:00:00 2001
-From: Alex Naidis <alex.naidis@linux.com>
-Date: Sun, 9 Apr 2017 01:29:27 +0200
-Subject: [PATCH 5/7] init: Weaken property override security for the init
- extension
-
-Sometimes we need to override ro.* properties by using our vendor init
-extension.
-
-Previously there was a security check which was blocking that.
-To resolve the issue, we need to weaken the security check during the
-execution of our vendor init extension.
-
-This is safe because the vendor init extension gets executed as part of init
-construction and it is considered a trusted system component.
-
-Change-Id: I6198b453745cb92c65d3e3d49e3262354cddd2a2
-Signed-off-by: Alex Naidis <alex.naidis@linux.com>
-Signed-off-by: neobuddy89 <neobuddy89@gmail.com>
----
- init/property_service.cpp | 12 ++++++++++--
- 1 file changed, 10 insertions(+), 2 deletions(-)
-
-diff --git a/init/property_service.cpp b/init/property_service.cpp
-index 736617acd0d..b80c9777307 100644
---- a/init/property_service.cpp
-+++ b/init/property_service.cpp
-@@ -118,6 +118,8 @@ struct PropertyAuditData {
-     const char* name;
- };
- 
-+static bool weaken_prop_override_security = false;
-+
- static int PropertyAuditCallback(void* data, security_class_t /*cls*/, char* buf, size_t len) {
-     auto* d = reinterpret_cast<PropertyAuditData*>(data);
- 
-@@ -188,8 +190,8 @@ static uint32_t PropertySet(const std::string& name, const std::string& value, s
- 
-     prop_info* pi = (prop_info*) __system_property_find(name.c_str());
-     if (pi != nullptr) {
--        // ro.* properties are actually "write-once".
--        if (StartsWith(name, "ro.")) {
-+        // ro.* properties are actually "write-once", unless the system decides to
-+        if (StartsWith(name, "ro.") && !weaken_prop_override_security) {
-             *error = "Read-only property was already set";
-             return PROP_ERROR_READ_ONLY_PROPERTY;
-         }
-@@ -1098,6 +1100,9 @@ void PropertyLoadBootDefaults() {
-         }
-     }
- 
-+    // Weaken property override security during execution of the vendor init extension
-+    weaken_prop_override_security = true;
-+
-     // Update with vendor-specific property runtime overrides
-     vendor_load_properties();
- 
-@@ -1107,6 +1112,9 @@ void PropertyLoadBootDefaults() {
-     property_derive_legacy_build_fingerprint();
-     property_initialize_ro_cpu_abilist();
- 
-+    // Restore the normal property override security after init extension is executed
-+    weaken_prop_override_security = false;
-+
-     if (android::base::GetBoolProperty("ro.persistent_properties.ready", false)) {
-         update_sys_usb_config();
-     }
-
-From 3e69429dcfa7e94060796b82de6d6fbfa376cc83 Mon Sep 17 00:00:00 2001
-From: spezi77 <spezi7713@gmx.net>
-Date: Fri, 15 Jan 2021 20:22:02 +0100
-Subject: [PATCH 6/7] init: Add more properties to spoof.
-
-Signed-off-by: neobuddy89 <neobuddy89@gmail.com>
----
- init/property_service.cpp | 11 +++++++++++
- 1 file changed, 11 insertions(+)
-
-diff --git a/init/property_service.cpp b/init/property_service.cpp
-index b80c9777307..53ac036a55a 100644
---- a/init/property_service.cpp
-+++ b/init/property_service.cpp
-@@ -1267,6 +1267,17 @@ static void SetSafetyNetProps() {
-     InitPropertySet("ro.boot.vbmeta.device_state", "locked");
-     InitPropertySet("ro.boot.verifiedbootstate", "green");
-     InitPropertySet("ro.boot.veritymode", "enforcing");
-+    InitPropertySet("ro.boot.veritymode", "enforcing");
-+    InitPropertySet("ro.boot.warranty_bit", "0");
-+    InitPropertySet("ro.warranty_bit", "0");
-+    InitPropertySet("ro.debuggable", "0");
-+    InitPropertySet("ro.secure", "1");
-+    InitPropertySet("ro.build.type", "user");
-+    InitPropertySet("ro.build.tags", "release-keys");
-+    InitPropertySet("ro.vendor.boot.warranty_bit", "0");
-+    InitPropertySet("ro.vendor.warranty_bit", "0");
-+    InitPropertySet("vendor.boot.vbmeta.device_state", "locked");
-+    InitPropertySet("vendor.boot.verifiedbootstate", "green");
- 
- }
- 
-
-From 58074d4e6f604c0cd5f1371d3869b25e6da230d5 Mon Sep 17 00:00:00 2001
-From: Pranav Vashi <neobuddy89@gmail.com>
-Date: Fri, 22 Oct 2021 04:07:18 +0530
-Subject: [PATCH 7/7] init: Do not set safety net props for ENG builds
-
-Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
-Signed-off-by: neobuddy89 <neobuddy89@gmail.com>
----
- init/Android.bp           | 3 +++
- init/Android.mk           | 6 ++++--
- init/property_service.cpp | 6 ++++--
- 3 files changed, 11 insertions(+), 4 deletions(-)
-
-diff --git a/init/Android.bp b/init/Android.bp
-index 00ac6a75203..c7b5632857d 100644
---- a/init/Android.bp
-+++ b/init/Android.bp
-@@ -130,6 +130,7 @@ libinit_cc_defaults {
-         "-DSHUTDOWN_ZERO_TIMEOUT=0",
-         "-DINIT_FULL_SOURCES",
-         "-DINSTALL_DEBUG_POLICY_TO_SYSTEM_EXT=0",
-+        "-DSPOOF_SAFETYNET=1",
-     ],
-     product_variables: {
-         debuggable: {
-@@ -152,6 +153,8 @@ libinit_cc_defaults {
-             cppflags: [
-                 "-USHUTDOWN_ZERO_TIMEOUT",
-                 "-DSHUTDOWN_ZERO_TIMEOUT=1",
-+                "-USPOOF_SAFETYNET",
-+                "-DSPOOF_SAFETYNET=0",
-             ],
-         },
-         uml: {
-diff --git a/init/Android.mk b/init/Android.mk
-index 3c7d95acf2c..f7765ef87ed 100644
---- a/init/Android.mk
-+++ b/init/Android.mk
-@@ -26,10 +26,12 @@ endif
- 
- ifneq (,$(filter eng,$(TARGET_BUILD_VARIANT)))
- init_options += \
--    -DSHUTDOWN_ZERO_TIMEOUT=1
-+    -DSHUTDOWN_ZERO_TIMEOUT=1 \
-+    -DSPOOF_SAFETYNET=0
- else
- init_options += \
--    -DSHUTDOWN_ZERO_TIMEOUT=0
-+    -DSHUTDOWN_ZERO_TIMEOUT=0 \
-+    -DSPOOF_SAFETYNET=1
- endif
- 
- init_options += -DLOG_UEVENTS=0 \
-diff --git a/init/property_service.cpp b/init/property_service.cpp
-index 53ac036a55a..6a008586c4b 100644
---- a/init/property_service.cpp
-+++ b/init/property_service.cpp
-@@ -1299,8 +1299,10 @@ void PropertyInit() {
-     // checks pass. This needs to be done before parsing the kernel cmdline as
-     // these properties are read-only and will be set to invalid values with
-     // androidboot cmdline arguments.
--    if (!IsRecoveryMode()) {
--      SetSafetyNetProps();
-+    if (SPOOF_SAFETYNET) {
-+        if (!IsRecoveryMode()) {
-+            SetSafetyNetProps();
-+        }
-     }
- 
-     // If arguments are passed both on the command line and in DT,
