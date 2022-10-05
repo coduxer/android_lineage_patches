@@ -1,16 +1,55 @@
+From fdc0204576d61b5a90838ae5b407535e5db125e6 Mon Sep 17 00:00:00 2001
+From: Danny Lin <danny@kdrag0n.dev>
+Date: Sat, 16 Oct 2021 05:27:57 -0700
+Subject: [PATCH] Add support for app signature spoofing
+
+This is needed by microG GmsCore to pretend to be the official Google
+Play Services package, because client apps check the package signature
+to make sure it matches Google's official certificate.
+
+This was forward-ported from the Android 10 patch by gudenau:
+https://github.com/microg/android_packages_apps_GmsCore/pull/957
+
+Changes made for Android 11:
+  - Updated PackageInfo calls
+  - Added new permission to public API surface, needed for
+    PermissionController which is now an updatable APEX on 11
+  - Added a dummy permission group to allow users to manage the
+    permission through the PermissionController UI
+    (by Vachounet <vachounet@live.fr>)
+  - Updated location provider comment for conciseness
+
+Changes made for Android 12:
+  - Moved mayFakeSignature into lock-free Computer subclass
+  - Always get permissions for packages that request signature spoofing
+    (otherwise permissions are usually ommitted and thus the permission
+    check doesn't work properly)
+  - Optimize mayFakeSignature check order to improve performance
+
+[SamarV-121: Adapt to T]
+
+Link: https://github.com/microg/GmsCore/pull/1586
+Change-Id: Ied7d6ce0b83a2d2345c3abba0429998d86494a88
+---
+ core/api/current.txt                          |  2 ++
+ core/res/AndroidManifest.xml                  | 15 +++++++++
+ core/res/res/values/strings.xml               | 12 +++++++
+ .../com/android/server/pm/ComputerEngine.java | 31 +++++++++++++++++--
+ 4 files changed, 57 insertions(+), 3 deletions(-)
+
 diff --git a/core/api/current.txt b/core/api/current.txt
-index 1de47b548a5c..7074b33c30d9 100644
+index c8a43db2f9c2..277183036c60 100644
 --- a/core/api/current.txt
 +++ b/core/api/current.txt
-@@ -82,6 +82,7 @@ package android {
-     field public static final String DIAGNOSTIC = "android.permission.DIAGNOSTIC";
-     field public static final String DISABLE_KEYGUARD = "android.permission.DISABLE_KEYGUARD";
+@@ -87,6 +87,7 @@ package android {
      field public static final String DUMP = "android.permission.DUMP";
-+    field public static final String FAKE_PACKAGE_SIGNATURE = "android.permission.FAKE_PACKAGE_SIGNATURE";
      field public static final String EXPAND_STATUS_BAR = "android.permission.EXPAND_STATUS_BAR";
      field public static final String FACTORY_TEST = "android.permission.FACTORY_TEST";
++    field public static final String FAKE_PACKAGE_SIGNATURE = "android.permission.FAKE_PACKAGE_SIGNATURE";
      field public static final String FOREGROUND_SERVICE = "android.permission.FOREGROUND_SERVICE";
-@@ -199,6 +200,7 @@ package android {
+     field public static final String GET_ACCOUNTS = "android.permission.GET_ACCOUNTS";
+     field public static final String GET_ACCOUNTS_PRIVILEGED = "android.permission.GET_ACCOUNTS_PRIVILEGED";
+@@ -222,6 +223,7 @@ package android {
      field public static final String CALL_LOG = "android.permission-group.CALL_LOG";
      field public static final String CAMERA = "android.permission-group.CAMERA";
      field public static final String CONTACTS = "android.permission-group.CONTACTS";
@@ -19,10 +58,10 @@ index 1de47b548a5c..7074b33c30d9 100644
      field public static final String MICROPHONE = "android.permission-group.MICROPHONE";
      field public static final String NEARBY_DEVICES = "android.permission-group.NEARBY_DEVICES";
 diff --git a/core/res/AndroidManifest.xml b/core/res/AndroidManifest.xml
-index 2a0a4e3483ae..1701dd50e32d 100644
+index 7439b2f0921f..9b584be3bb62 100644
 --- a/core/res/AndroidManifest.xml
 +++ b/core/res/AndroidManifest.xml
-@@ -3197,6 +3197,21 @@
+@@ -3534,6 +3534,21 @@
          android:description="@string/permdesc_getPackageSize"
          android:protectionLevel="normal" />
  
@@ -44,24 +83,11 @@ index 2a0a4e3483ae..1701dd50e32d 100644
      <!-- @deprecated No longer useful, see
           {@link android.content.pm.PackageManager#addPackageToPreferred}
           for details. -->
-diff --git a/core/res/res/values/config.xml b/core/res/res/values/config.xml
-index fbc14c7e2e17..f601ce35e52c 100644
---- a/core/res/res/values/config.xml
-+++ b/core/res/res/values/config.xml
-@@ -1775,6 +1775,8 @@
-     <string-array name="config_locationProviderPackageNames" translatable="false">
-         <!-- The standard AOSP fused location provider -->
-         <item>com.android.location.fused</item>
-+        <!-- Google Play Services or microG (free reimplementation) location provider -->
-+        <item>com.google.android.gms</item>
-     </string-array>
- 
-     <!-- Package name(s) of Advanced Driver Assistance applications. These packages have additional
 diff --git a/core/res/res/values/strings.xml b/core/res/res/values/strings.xml
-index b58638cc3ade..8cf98fa56bf6 100644
+index e5d90f00f327..7ac26e536f2a 100644
 --- a/core/res/res/values/strings.xml
 +++ b/core/res/res/values/strings.xml
-@@ -880,6 +880,18 @@
+@@ -974,6 +974,18 @@
  
      <!--  Permissions -->
  
@@ -81,10 +107,10 @@ index b58638cc3ade..8cf98fa56bf6 100644
      <string name="permlab_statusBar">disable or modify status bar</string>
      <!-- Description of an application permission, listed so the user can choose whether they want to allow the application to do this. -->
 diff --git a/services/core/java/com/android/server/pm/ComputerEngine.java b/services/core/java/com/android/server/pm/ComputerEngine.java
-index 259ca65..ad25bcd 100644
+index 259ca655d2b9..ad25bcd2edfe 100644
 --- a/services/core/java/com/android/server/pm/ComputerEngine.java
 +++ b/services/core/java/com/android/server/pm/ComputerEngine.java
-@@ -1591,6 +1591,29 @@
+@@ -1591,6 +1591,29 @@ private List<ResolveInfo> maybeAddInstantAppInstaller(List<ResolveInfo> result,
          return result;
      }
  
@@ -114,7 +140,7 @@ index 259ca65..ad25bcd 100644
      public final PackageInfo generatePackageInfo(PackageStateInternal ps,
              @PackageManager.PackageInfoFlagsBits long flags, int userId) {
          if (!mUserManager.exists(userId)) return null;
-@@ -1620,13 +1643,15 @@
+@@ -1620,13 +1643,15 @@ public final PackageInfo generatePackageInfo(PackageStateInternal ps,
              final int[] gids = (flags & PackageManager.GET_GIDS) == 0 ? EMPTY_INT_ARRAY
                      : mPermissionManager.getGidsForUid(UserHandle.getUid(userId, ps.getAppId()));
              // Compute granted permissions only if package has requested permissions
