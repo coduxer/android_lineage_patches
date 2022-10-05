@@ -153,7 +153,7 @@ index 0000000000000..3670160a348ab
 +        propsToChangePixel6.put("DEVICE", "raven");
 +        propsToChangePixel6.put("PRODUCT", "raven");
 +        propsToChangePixel6.put("MODEL", "Pixel 6 Pro");
-+        propsToChangePixel6.put("FINGERPRINT", "google/raven/raven:13/TP1A.220905.004/8927612:user/release-keys");
++        propsToChangePixel6.put("FINGERPRINT", "google/raven/raven:13/TP1A.221005.002/9012097:user/release-keys");
 +        propsToChangePixel5 = new HashMap<>();
 +        propsToChangePixel5.put("BRAND", "google");
 +        propsToChangePixel5.put("MANUFACTURER", "Google");
