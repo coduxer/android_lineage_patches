@@ -17,26 +17,3 @@ clean-repo "packages/modules/Permission"
 apply-patch "packages/modules/Permission" "$SCRIPT_DIR/packages_modules_Permission-S.patch"
 clean-repo "system/core"
 apply-patch "system/core" "$SCRIPT_DIR/android_system_core-safetynetfix.patch"
-
-
-
-
-# clean-repo "device/xiaomi/spes"
-# apply-patch "device/xiaomi/spes" "$SCRIPT_DIR/device_xiaomi_spes-mindthegapps.patch"
-
-
-
-# clean-repo "device/xiaomi/spes"
-# apply-patch "device/xiaomi/spes" "$SCRIPT_DIR/mindthegapps.patch"
-
-
-
-# patch -p1 < "$SCRIPT_DIR/android_frameworks_base-S.patch"
-#patch -p1 < "$SCRIPT_DIR/packages_modules_Permission-S.patch"
-
-#patch -p1 < "$SCRIPT_DIR/Block_key_attestation_for_SafetyNet2.patch"
-
-
-
-
-
