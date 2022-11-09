@@ -66,6 +66,27 @@ function apply-patch2 () {
     popd
 }
 
+function activate-folder () {
+    FOLDER="$1"
+    ACTIVATE_STATUS="${2:-on}"
+    ACTIVATE_STATE="off"
+    if [ -d "$FOLDER" ]; then
+      ACTIVATE_STATE="on"
+    fi
+
+    if [[ "${ACTIVATE_STATUS}" == "${ACTIVATE_STATE}" ]]; then
+      echo "folder \"`basename $FOLDER`\" already \"$ACTIVATE_STATE\""
+      return
+    fi
+    if [[ "${ACTIVATE_STATUS}" == "on" ]]; then
+      echo "sync folder: \"$FOLDER\""
+      repo sync "$FOLDER"
+    else # is 'off'
+      echo "deleteing folder: \"$FOLDER\""
+      rm -rf "$FOLDER"
+    fi
+}
+
 
 function clean-repo () {
     PATCH_DIR="$1"
