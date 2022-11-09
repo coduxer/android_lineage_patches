@@ -1,8 +1,9 @@
-From a4e26e5726e2e8dda617c3d18c8e71e0fe245898 Mon Sep 17 00:00:00 2001
+From e45cc3290cc0903caead32fe7146bdba5bab6003 Mon Sep 17 00:00:00 2001
 From: coduxer <coduxer@gmail.com>
-Date: Sun, 14 Aug 2022 22:30:34 +0300
-Subject: [PATCH] Add 3 finger swipe screenshot
+Date: Wed, 9 Nov 2022 17:32:50 +0200
+Subject: [PATCH] [PATCH] Add 3 finger swipe screenshot
 
+Change-Id: I75a4961ae4fe544fc8fc46141339d8ae3c6a75a6
 ---
  core/java/android/app/IActivityManager.aidl   |   5 +
  core/java/android/view/ViewRootImpl.java      |  14 ++
@@ -13,26 +14,28 @@ Subject: [PATCH] Add 3 finger swipe screenshot
  create mode 100644 services/core/java/com/android/server/policy/SwipeToScreenshotListener.java
 
 diff --git a/core/java/android/app/IActivityManager.aidl b/core/java/android/app/IActivityManager.aidl
-index 2ca3e2734349..b1ac8982e913 100644
+index 8367441b1b95..18e1b0ff9a9b 100644
 --- a/core/java/android/app/IActivityManager.aidl
 +++ b/core/java/android/app/IActivityManager.aidl
-@@ -728,4 +728,9 @@ interface IActivityManager {
- 
+@@ -751,6 +751,11 @@ interface IActivityManager {
      /** Blocks until all broadcast queues become idle. */
      void waitForBroadcastIdle();
-+
+ 
 +    /**
 +     *  Should disable touch if three fingers to screen shot is active?
 +     */
 +    boolean isSwipeToScreenshotGestureActive();
- }
++
+     /**
+      * @return The reason code of whether or not the given UID should be exempted from background
+      * restrictions here.
 diff --git a/core/java/android/view/ViewRootImpl.java b/core/java/android/view/ViewRootImpl.java
-index 0b19f4f44653..7961f3c83799 100644
+index a13872eef6b8..7b5c6aa9007b 100644
 --- a/core/java/android/view/ViewRootImpl.java
 +++ b/core/java/android/view/ViewRootImpl.java
-@@ -6447,6 +6447,11 @@ public final class ViewRootImpl implements ViewParent,
-         private int processPointerEvent(QueuedInputEvent q) {
+@@ -6543,6 +6543,11 @@ public final class ViewRootImpl implements ViewParent,
              final MotionEvent event = (MotionEvent)q.mEvent;
+             mHandwritingInitiator.onTouchEvent(event);
  
 +            if (event.getPointerCount() == 3 && isSwipeToScreenshotGestureActive()) {
 +                event.setAction(MotionEvent.ACTION_CANCEL);
@@ -42,10 +45,10 @@ index 0b19f4f44653..7961f3c83799 100644
              mAttachInfo.mUnbufferedDispatchRequested = false;
              mAttachInfo.mHandlingPointerEvent = true;
              boolean handled = mView.dispatchPointerEvent(event);
-@@ -10635,4 +10640,13 @@ public final class ViewRootImpl implements ViewParent,
-        mBLASTDrawConsumer = consume;
-        return true;
-    }
+@@ -10980,4 +10985,13 @@ public final class ViewRootImpl implements ViewParent,
+         }
+         mSurfaceSyncer.merge(mSyncId, syncId, otherSyncer);
+     }
 +
 +    private boolean isSwipeToScreenshotGestureActive() {
 +        try {
@@ -57,22 +60,22 @@ index 0b19f4f44653..7961f3c83799 100644
 +    }
  }
 diff --git a/services/core/java/com/android/server/am/ActivityManagerService.java b/services/core/java/com/android/server/am/ActivityManagerService.java
-index a32aa6d895ef..c3e654f30e22 100644
+index a78c64b6538d..e2fb5b242188 100644
 --- a/services/core/java/com/android/server/am/ActivityManagerService.java
 +++ b/services/core/java/com/android/server/am/ActivityManagerService.java
-@@ -400,6 +400,8 @@ import com.android.server.wm.WindowManagerInternal;
- import com.android.server.wm.WindowManagerService;
- import com.android.server.wm.WindowProcessController;
+@@ -428,6 +428,8 @@ import com.android.server.wm.WindowProcessController;
+ import dalvik.annotation.optimization.NeverCompile;
+ import dalvik.system.VMRuntime;
  
 +import lineageos.providers.LineageSettings;
 +
- import dalvik.system.VMRuntime;
- 
  import libcore.util.EmptyArray;
-@@ -1512,6 +1514,10 @@ public class ActivityManagerService extends IActivityManager.Stub
-     private ParcelFileDescriptor[] mLifeMonitorFds;
  
-     static final HostingRecord sNullHostingRecord = new HostingRecord(null);
+ import java.io.File;
+@@ -1555,6 +1557,10 @@ public class ActivityManagerService extends IActivityManager.Stub
+ 
+     static final HostingRecord sNullHostingRecord =
+             new HostingRecord(HostingRecord.HOSTING_TYPE_EMPTY);
 +
 +    final SwipeToScreenshotObserver mSwipeToScreenshotObserver;
 +    private boolean mIsSwipeToScrenshotEnabled;
@@ -80,23 +83,23 @@ index a32aa6d895ef..c3e654f30e22 100644
      /**
       * Used to notify activity lifecycle events.
       */
-@@ -2240,6 +2246,7 @@ public class ActivityManagerService extends IActivityManager.Stub
+@@ -2349,6 +2355,7 @@ public class ActivityManagerService extends IActivityManager.Stub
+         mPendingStartActivityUids = new PendingStartActivityUids(mContext);
          mUseFifoUiScheduling = false;
          mEnableOffloadQueue = false;
-         mFgBroadcastQueue = mBgBroadcastQueue = mOffloadBroadcastQueue = null;
 +        mSwipeToScreenshotObserver = null;
-     }
+         mFgBroadcastQueue = mBgBroadcastQueue = mBgOffloadBroadcastQueue =
+                 mFgOffloadBroadcastQueue = null;
+         mComponentAliasResolver = new ComponentAliasResolver(this);
+@@ -2483,6 +2490,7 @@ public class ActivityManagerService extends IActivityManager.Stub
  
-     // Note: This method is invoked on the main thread but may need to attach various
-@@ -2366,6 +2373,7 @@ public class ActivityManagerService extends IActivityManager.Stub
          mInternal = new LocalService();
          mPendingStartActivityUids = new PendingStartActivityUids(mContext);
-         mTraceErrorLogger = new TraceErrorLogger();
 +        mSwipeToScreenshotObserver = new SwipeToScreenshotObserver(mHandler, mContext);
+         mTraceErrorLogger = new TraceErrorLogger();
+         mComponentAliasResolver = new ComponentAliasResolver(this);
      }
- 
-     public void setSystemServiceManager(SystemServiceManager mgr) {
-@@ -7539,6 +7547,7 @@ public class ActivityManagerService extends IActivityManager.Stub
+@@ -8031,6 +8039,7 @@ public class ActivityManagerService extends IActivityManager.Stub
          }
          mAppErrors.loadAppsNotReportingCrashesFromConfig(res.getString(
                  com.android.internal.R.string.config_appsNotReportingCrashes));
@@ -104,7 +107,7 @@ index a32aa6d895ef..c3e654f30e22 100644
      }
  
      /**
-@@ -17249,6 +17258,32 @@ public class ActivityManagerService extends IActivityManager.Stub
+@@ -18405,6 +18414,32 @@ public class ActivityManagerService extends IActivityManager.Stub
          }
      }
  
@@ -137,7 +140,7 @@ index a32aa6d895ef..c3e654f30e22 100644
      @Override
      public boolean isAppFreezerSupported() {
          final long token = Binder.clearCallingIdentity();
-@@ -17316,4 +17351,10 @@ public class ActivityManagerService extends IActivityManager.Stub
+@@ -18477,4 +18512,10 @@ public class ActivityManagerService extends IActivityManager.Stub
              Trace.traceBegin(traceTag, methodName + subInfo);
          }
      }
@@ -149,10 +152,10 @@ index a32aa6d895ef..c3e654f30e22 100644
 +    }
  }
 diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
-index 2d63fae918b1..e9f61db0cb20 100644
+index 750010d99531..ddd7c18d5d53 100644
 --- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
 +++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
-@@ -568,6 +568,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+@@ -594,6 +594,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
      boolean mPendingCapsLockToggle;
  
      private int mForceNavbar = -1;
@@ -161,9 +164,9 @@ index 2d63fae918b1..e9f61db0cb20 100644
  
      // Tracks user-customisable behavior for certain key events
      private Action mBackLongPressAction;
-@@ -913,6 +915,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+@@ -943,6 +945,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
              resolver.registerContentObserver(LineageSettings.System.getUriFor(
-                     LineageSettings.System.CLICK_PARTIAL_SCREENSHOT), false, this,
+                     LineageSettings.System.VOLUME_ANSWER_CALL), false, this,
                      UserHandle.USER_ALL);
 +            resolver.registerContentObserver(LineageSettings.System.getUriFor(
 +                    LineageSettings.System.THREE_FINGER_GESTURE), false, this,
@@ -171,7 +174,7 @@ index 2d63fae918b1..e9f61db0cb20 100644
  
              updateSettings();
          }
-@@ -2560,6 +2565,19 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+@@ -2861,6 +2866,19 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                  }
              }
  
@@ -191,7 +194,7 @@ index 2d63fae918b1..e9f61db0cb20 100644
              updateKeyAssignments();
  
              // use screen off timeout setting as the timeout for the lockscreen
-@@ -5449,6 +5467,16 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+@@ -5691,6 +5709,16 @@ public class PhoneWindowManager implements WindowManagerPolicy {
          }
  
          mLineageHardware = LineageHardwareManager.getInstance(mContext);
@@ -363,5 +366,5 @@ index 000000000000..88a465b6c382
 +    }
 +}
 -- 
-2.37.1
+2.38.1
 
