@@ -194,17 +194,14 @@ index 750010d99531..ddd7c18d5d53 100644
              updateKeyAssignments();
  
              // use screen off timeout setting as the timeout for the lockscreen
-@@ -5691,6 +5709,16 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+@@ -5691,6 +5709,13 @@ public class PhoneWindowManager implements WindowManagerPolicy {
          }
  
          mLineageHardware = LineageHardwareManager.getInstance(mContext);
 +        mSwipeToScreenshot = new SwipeToScreenshotListener(mContext, new SwipeToScreenshotListener.Callbacks() {
 +            @Override
 +            public void onSwipeThreeFinger() {
-+                mHandler.removeCallbacks(mScreenshotRunnable);
-+                mScreenshotRunnable.setScreenshotType(TAKE_SCREENSHOT_FULLSCREEN);
-+                mScreenshotRunnable.setScreenshotSource(SCREENSHOT_KEY_OTHER);
-+                mHandler.post(mScreenshotRunnable);
++                interceptScreenshotChord(TAKE_SCREENSHOT_FULLSCREEN, SCREENSHOT_KEY_OTHER, 0 /*pressDelay*/);
 +            }
 +        });
 +
