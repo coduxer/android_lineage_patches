@@ -1,0 +1,4565 @@
+From ea3a3483dd462e4f1278a363adc8fa38800c806d Mon Sep 17 00:00:00 2001
+From: Paras Nagda <pnagda@codeaurora.org>
+Date: Fri, 4 May 2018 16:13:15 +0530
+Subject: [PATCH 01/71] stagefright: add changes related to high-framerates in
+ CameraSource
+
+Below changes are squashed with this change.
+
+Stagefright: Allow setting high-framerates in CameraSource
+ChangeId: If66211dd81b2a08d4df4c6f23e87304e9e7013f4
+
+Stagefright: Allow setting of high-framerates in CameraSource for HSR
+ChangeId: I30cb3b656570de1b615d55c20c0b4f98ae6e0c12
+
+Stagefright: Create CameraSource for HSR
+ChangeId: I7f420f5b15fb3c05bb7f918430ca9b7a630ed18e
+
+Stagefright: Do not skip frames in time-lapse-source for high-speed
+ChangeId: I8420e44ab96484f0d6301c366a24eefc8efeaf0f
+
+media : Changing time stamp manipulation in HFR recording.
+ChangeId: I98cdb14bb2b9c86013df9b2c8f2e558f184b633e
+
+media: Modify timestamps for HFR use case
+ChangeId: I3faf7294f743b1031ccc6624c3348f7e12b339b8
+
+CRs-Fixed: 2226740
+Change-Id: I079d880252992b94bd78ac43aed732f5000175d3
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../libmediaplayerservice/StagefrightRecorder.cpp  |  3 ++-
+ media/libstagefright/CameraSource.cpp              | 14 +++++++++++++-
+ media/libstagefright/CameraSourceTimeLapse.cpp     |  9 ++++++++-
+ 3 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/media/libmediaplayerservice/StagefrightRecorder.cpp b/media/libmediaplayerservice/StagefrightRecorder.cpp
+index ea1fdf4bf8..6ff62bba5b 100644
+--- a/media/libmediaplayerservice/StagefrightRecorder.cpp
++++ b/media/libmediaplayerservice/StagefrightRecorder.cpp
+@@ -1889,7 +1889,7 @@ status_t StagefrightRecorder::setupCameraSource(
+     pid_t pid = VALUE_OR_RETURN_STATUS(aidl2legacy_int32_t_pid_t(mAttributionSource.pid));
+     String16 clientName = VALUE_OR_RETURN_STATUS(
+         aidl2legacy_string_view_String16(mAttributionSource.packageName.value_or("")));
+-    if (mCaptureFpsEnable) {
++    if (mCaptureFpsEnable && mCaptureFps != mFrameRate) {
+         if (!(mCaptureFps > 0.)) {
+             ALOGE("Invalid mCaptureFps value: %lf", mCaptureFps);
+             return BAD_VALUE;
+@@ -2044,6 +2044,7 @@ status_t StagefrightRecorder::setupVideoEncoder(
+             preferBFrames = false;
+             tsLayers = 2; // use at least two layers as resulting video will likely be sped up
+         } else if (mCaptureFps > maxPlaybackFps) { // slow-mo
++            format->setInt32("high-frame-rate", 1);
+             maxPlaybackFps = mCaptureFps; // assume video will be played back at full capture speed
+             preferBFrames = false;
+         }
+diff --git a/media/libstagefright/CameraSource.cpp b/media/libstagefright/CameraSource.cpp
+index 96074252c9..3885abf905 100644
+--- a/media/libstagefright/CameraSource.cpp
++++ b/media/libstagefright/CameraSource.cpp
+@@ -243,6 +243,12 @@ status_t CameraSource::isCameraColorFormatSupported(
+     return OK;
+ }
+ 
++static int32_t getHighSpeedFrameRate(const CameraParameters& params) {
++    const char* hsr = params.get("video-hsr");
++    int32_t rate = (hsr != NULL && strncmp(hsr, "off", 3)) ? strtol(hsr, NULL, 10) : 0;
++    return std::min(rate, 240);
++}
++
+ /*
+  * Configure the camera to use the requested video size
+  * (width and height) and/or frame rate. If both width and
+@@ -290,11 +296,15 @@ status_t CameraSource::configureCamera(
+     }
+ 
+     if (frameRate != -1) {
+-        CHECK(frameRate > 0 && frameRate <= 120);
++        CHECK(frameRate > 0 && frameRate <= 240);
+         const char* supportedFrameRates =
+                 params->get(CameraParameters::KEY_SUPPORTED_PREVIEW_FRAME_RATES);
+         CHECK(supportedFrameRates != NULL);
+         ALOGV("Supported frame rates: %s", supportedFrameRates);
++        if (getHighSpeedFrameRate(*params)) {
++            ALOGI("Use default 30fps for HighSpeed %dfps", frameRate);
++            frameRate = 30;
++        }
+         char buf[4];
+         snprintf(buf, 4, "%d", frameRate);
+         if (strstr(supportedFrameRates, buf) == NULL) {
+@@ -396,6 +406,8 @@ status_t CameraSource::checkFrameRate(
+         ALOGE("Failed to retrieve preview frame rate (%d)", frameRateActual);
+         return UNKNOWN_ERROR;
+     }
++    int32_t highSpeedRate = getHighSpeedFrameRate(params);
++    frameRateActual = highSpeedRate ? highSpeedRate : frameRateActual;
+ 
+     // Check the actual video frame rate against the target/requested
+     // video frame rate.
+diff --git a/media/libstagefright/CameraSourceTimeLapse.cpp b/media/libstagefright/CameraSourceTimeLapse.cpp
+index 50a512f726..59b5e20a44 100644
+--- a/media/libstagefright/CameraSourceTimeLapse.cpp
++++ b/media/libstagefright/CameraSourceTimeLapse.cpp
+@@ -268,7 +268,8 @@ bool CameraSourceTimeLapse::skipFrameAndModifyTimeStamp(int64_t *timestampUs) {
+     // The first 2 output frames from the encoder are: decoder specific info and
+     // the compressed video frame data for the first input video frame.
+     if (mNumFramesEncoded >= 1 && *timestampUs <
+-        (mLastTimeLapseFrameRealTimestampUs + mTimeBetweenFrameCaptureUs)) {
++        (mLastTimeLapseFrameRealTimestampUs + mTimeBetweenFrameCaptureUs) &&
++        (mTimeBetweenFrameCaptureUs > mTimeBetweenTimeLapseVideoFramesUs + 1)) {
+         // Skip all frames from last encoded frame until
+         // sufficient time (mTimeBetweenFrameCaptureUs) has passed.
+         // Tell the camera to release its recording frame and return.
+@@ -283,6 +284,12 @@ bool CameraSourceTimeLapse::skipFrameAndModifyTimeStamp(int64_t *timestampUs) {
+ 
+         mLastTimeLapseFrameRealTimestampUs = *timestampUs;
+         *timestampUs = mLastFrameTimestampUs + mTimeBetweenTimeLapseVideoFramesUs;
++        // Update start-time once the captured-time reaches the expected start-time.
++        // Not doing so will result in CameraSource always dropping frames since
++        // updated-timestamp will never intersect start-timestamp
++        if ((mNumFramesReceived == 0 && mLastTimeLapseFrameRealTimestampUs >= mStartTimeUs)) {
++            mStartTimeUs = *timestampUs;
++        }
+         return false;
+     }
+     return false;
+
+From 98a70869475160395619c07df459abddbd75f5da Mon Sep 17 00:00:00 2001
+From: Susmitha Gummalla <vgummall@codeaurora.org>
+Date: Tue, 29 Apr 2014 12:18:30 -0700
+Subject: [PATCH 02/71] Camera: Add support for preview frame fd
+
+-Add support for receiving dataCallback with fd/buffer as frame buffer
+
+CRs-fixed: 654901
+Change-Id: I5c16e560f1e209a6ab4afa4f3437602b02992b9b
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ camera/ICameraClient.cpp | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/camera/ICameraClient.cpp b/camera/ICameraClient.cpp
+index bef2ea0acd..be82ff4ec6 100644
+--- a/camera/ICameraClient.cpp
++++ b/camera/ICameraClient.cpp
+@@ -51,7 +51,11 @@ class BpCameraClient: public BpInterface<ICameraClient>
+         data.writeInterfaceToken(ICameraClient::getInterfaceDescriptor());
+         data.writeInt32(msgType);
+         data.writeInt32(ext1);
+-        data.writeInt32(ext2);
++        if ((msgType == CAMERA_MSG_PREVIEW_FRAME) && (ext1 == CAMERA_FRAME_DATA_FD)) {
++            data.writeFileDescriptor(ext2);
++        } else {
++            data.writeInt32(ext2);
++        }
+         remote()->transact(NOTIFY_CALLBACK, data, &reply, IBinder::FLAG_ONEWAY);
+     }
+ 
+@@ -129,8 +133,13 @@ status_t BnCameraClient::onTransact(
+             ALOGV("NOTIFY_CALLBACK");
+             CHECK_INTERFACE(ICameraClient, data, reply);
+             int32_t msgType = data.readInt32();
+-            int32_t ext1 = data.readInt32();
+-            int32_t ext2 = data.readInt32();
++            int32_t ext1    = data.readInt32();
++            int32_t ext2    = 0;
++            if ((msgType == CAMERA_MSG_PREVIEW_FRAME) && (ext1 == CAMERA_FRAME_DATA_FD)) {
++                ext2 = data.readFileDescriptor();
++            } else {
++                ext2 = data.readInt32();
++            }
+             notifyCallback(msgType, ext1, ext2);
+             return NO_ERROR;
+         } break;
+
+From 4d0d3de87bbb10c97569052b6665691ae74b2c84 Mon Sep 17 00:00:00 2001
+From: maxwen <max.weninger@gmail.com>
+Date: Tue, 9 Oct 2018 13:52:55 +0200
+Subject: [PATCH 03/71] camera: Allow to use boottime as timestamp reference
+
+* Some /mad/ HALs use boottime clock without reporting
+  timestamp source as realtime
+  -> Add a flag to force boottime offset calculation
+
+[SebaUbuntu] Edit for Soong conditional
+
+Change-Id: I56b623a1c2b58ca8a6287783d938fb665de201df
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ services/camera/libcameraservice/Android.bp                | 1 +
+ services/camera/libcameraservice/device3/Camera3Device.cpp | 5 +++++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/services/camera/libcameraservice/Android.bp b/services/camera/libcameraservice/Android.bp
+index 981c56942c..b6ddbd1e8b 100644
+--- a/services/camera/libcameraservice/Android.bp
++++ b/services/camera/libcameraservice/Android.bp
+@@ -37,6 +37,7 @@ license {
+ 
+ cc_library_shared {
+     name: "libcameraservice",
++    defaults: ["needs_camera_boottime_defaults",],
+ 
+     // Camera service source
+ 
+diff --git a/services/camera/libcameraservice/device3/Camera3Device.cpp b/services/camera/libcameraservice/device3/Camera3Device.cpp
+index 7c2f34f46e..54b7b678a6 100644
+--- a/services/camera/libcameraservice/device3/Camera3Device.cpp
++++ b/services/camera/libcameraservice/device3/Camera3Device.cpp
+@@ -198,6 +198,11 @@ status_t Camera3Device::initializeCommonLocked() {
+         mDeviceTimeBaseIsRealtime = true;
+     }
+ 
++#ifdef TARGET_CAMERA_BOOTTIME_TIMESTAMP
++    // Always calculate the offset if requested
++    mTimestampOffset = getMonoToBoottimeOffset();
++#endif
++
+     // Will the HAL be sending in early partial result metadata?
+     camera_metadata_entry partialResultsCount =
+             mDeviceInfo.find(ANDROID_REQUEST_PARTIAL_RESULT_COUNT);
+
+From 4fc7b47613d3266c734a40d2d0df4808a3701a6a Mon Sep 17 00:00:00 2001
+From: Steve Kondik <shade@chemlab.org>
+Date: Wed, 1 May 2013 02:58:11 -0700
+Subject: [PATCH 04/71] camera: Don't segfault if we get a NULL parameter
+
+ * Values end up NULL on some drivers, don't crash.
+
+Change-Id: Ic897dbd4629cf3af98c85f93be202c382dde806b
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ camera/CameraParameters.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/camera/CameraParameters.cpp b/camera/CameraParameters.cpp
+index e95c91cb98..99befa7968 100644
+--- a/camera/CameraParameters.cpp
++++ b/camera/CameraParameters.cpp
+@@ -238,6 +238,9 @@ void CameraParameters::unflatten(const String8 &params)
+ 
+ void CameraParameters::set(const char *key, const char *value)
+ {
++    if (key == NULL || value == NULL)
++        return;
++
+     // XXX i think i can do this with strspn()
+     if (strchr(key, '=') || strchr(key, ';')) {
+         //XXX ALOGE("Key \"%s\"contains invalid character (= or ;)", key);
+
+From c305c71932bf06e4ab7a4dc7f496d33714d8579c Mon Sep 17 00:00:00 2001
+From: Ethan Chen <intervigil@gmail.com>
+Date: Sun, 3 Jan 2016 14:09:23 -0800
+Subject: [PATCH 05/71] libstagefright: Support YVU420SemiPlanar camera format
+
+Change-Id: I631ba6267b3769d9da498329a39ac89c609be6d8
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/libstagefright/CameraSource.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/media/libstagefright/CameraSource.cpp b/media/libstagefright/CameraSource.cpp
+index 3885abf905..2bb32605f2 100644
+--- a/media/libstagefright/CameraSource.cpp
++++ b/media/libstagefright/CameraSource.cpp
+@@ -80,6 +80,10 @@ static int32_t getColorFormat(const char* colorFormat) {
+         return OMX_COLOR_FormatAndroidOpaque;
+     }
+ 
++    if (!strcmp(colorFormat, "YVU420SemiPlanar")) {
++        return OMX_QCOM_COLOR_FormatYVU420SemiPlanar;
++    }
++
+     ALOGE("Uknown color format (%s), please add it to "
+          "CameraSource::getColorFormat", colorFormat);
+ 
+
+From 1bc2a7ea5dcb81522da67111c7ceb919ab1c0577 Mon Sep 17 00:00:00 2001
+From: Bruno Martins <bgcngm@gmail.com>
+Date: Sat, 23 Sep 2017 18:29:21 +0100
+Subject: [PATCH 06/71] camera: include: Don't override possible overlayed
+ header
+
+ * If targets define a specific header path, then let it be the case
+   and don't override it to avoid mismatched headers in the modules.
+
+ * This only became an issue since O due to moved camera headers (commit e2b43843fd12783188edd2c54188ea8d26864788).
+
+Change-Id: I6bf7d1da7448d71f7821d40501db971f837781db
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ camera/include/camera/CameraParameters2.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/camera/include/camera/CameraParameters2.h b/camera/include/camera/CameraParameters2.h
+index f691cd6ea0..5fae079376 100644
+--- a/camera/include/camera/CameraParameters2.h
++++ b/camera/include/camera/CameraParameters2.h
+@@ -19,7 +19,7 @@
+ 
+ #include <utils/Vector.h>
+ #include <utils/String8.h>
+-#include "CameraParameters.h"
++#include <camera/CameraParameters.h>
+ 
+ namespace android {
+ 
+
+From d9a00e9dbb0c7d32d84a2aff0cc4ccc653623426 Mon Sep 17 00:00:00 2001
+From: DennySPb <dennyspb@gmail.com>
+Date: Mon, 18 Oct 2021 10:16:39 +0300
+Subject: [PATCH 07/71] Merge rest of privileged client camera stream bypass
+
+Change-Id: Ie38d333f8e283d767797306dc26637244038a4c4
+Signed-off-by: DennySPb <dennyspb@gmail.com>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../camera/libcameraservice/api2/CameraDeviceClient.cpp   | 8 ++++++++
+ .../camera/libcameraservice/api2/CameraDeviceClient.h     | 1 +
+ 2 files changed, 9 insertions(+)
+
+diff --git a/services/camera/libcameraservice/api2/CameraDeviceClient.cpp b/services/camera/libcameraservice/api2/CameraDeviceClient.cpp
+index 5e9150143a..dc5ed49521 100644
+--- a/services/camera/libcameraservice/api2/CameraDeviceClient.cpp
++++ b/services/camera/libcameraservice/api2/CameraDeviceClient.cpp
+@@ -103,8 +103,16 @@ CameraDeviceClient::CameraDeviceClient(const sp<CameraService>& cameraService,
+     mInputStream(),
+     mStreamingRequestId(REQUEST_ID_NONE),
+     mRequestIdCounter(0),
++    mPrivilegedClient(false),
+     mOverrideForPerfClass(overrideForPerfClass) {
+ 
++    char value[PROPERTY_VALUE_MAX];
++    property_get("persist.vendor.camera.privapp.list", value, "");
++    String16 packagelist(value);
++    if (packagelist.contains(clientPackageName.string())) {
++        mPrivilegedClient = true;
++    }
++
+     ATRACE_CALL();
+     ALOGI("CameraDeviceClient %s: Opened", cameraId.string());
+ }
+diff --git a/services/camera/libcameraservice/api2/CameraDeviceClient.h b/services/camera/libcameraservice/api2/CameraDeviceClient.h
+index c5aad6b222..d48966a56d 100644
+--- a/services/camera/libcameraservice/api2/CameraDeviceClient.h
++++ b/services/camera/libcameraservice/api2/CameraDeviceClient.h
+@@ -324,6 +324,7 @@ class CameraDeviceClient :
+     static const int32_t REQUEST_ID_NONE = -1;
+ 
+     int32_t mRequestIdCounter;
++    bool mPrivilegedClient;
+ 
+     std::vector<std::string> mPhysicalCameraIds;
+ 
+
+From d21393e3de92c2010efe02069729b29a4af50cda Mon Sep 17 00:00:00 2001
+From: Susmitha Gummalla <vgummall@codeaurora.org>
+Date: Tue, 27 Aug 2019 16:38:37 -0800
+Subject: [PATCH 08/71] Camera: Flush Improvements - Result drain optimization
+
+-Avoid waiting on results once flush is completed
+-Help improve camera switch KPI
+
+CRs-Fixed: 2525025
+Change-Id: I0db7877b6582c281a178035d4c202a5bd6aaaca8
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../camera/libcameraservice/device3/Camera3Device.cpp     | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/services/camera/libcameraservice/device3/Camera3Device.cpp b/services/camera/libcameraservice/device3/Camera3Device.cpp
+index 54b7b678a6..441aacf2bb 100644
+--- a/services/camera/libcameraservice/device3/Camera3Device.cpp
++++ b/services/camera/libcameraservice/device3/Camera3Device.cpp
+@@ -3127,9 +3127,15 @@ status_t Camera3Device::RequestThread::clear(
+ 
+ status_t Camera3Device::RequestThread::flush() {
+     ATRACE_CALL();
++    status_t flush_status;
+     Mutex::Autolock l(mFlushLock);
+ 
+-    return mInterface->flush();
++    flush_status = mInterface->flush();
++    // We have completed flush, signal RequestThread::waitForNextRequestLocked() to no longer wait for
++    // new requests
++    mRequestSignal.signal();
++
++    return flush_status;
+ }
+ 
+ void Camera3Device::RequestThread::setPaused(bool paused) {
+
+From c6952b9135a84df5bdafe129d75d9bea2917ad14 Mon Sep 17 00:00:00 2001
+From: Manikanta Kanamarlapudi <kmanikan@codeaurora.org>
+Date: Mon, 30 Apr 2018 12:34:40 +0530
+Subject: [PATCH 09/71] libstagefright: Allow HFR-60 in HAL-3 recording
+
+Time stamp manipulation is needed to support HFR-60
+since timePerFrame and timePerCapture are different.
+Made changes for the same.
+
+CRs-Fixed: 2105921
+Change-Id: I0a23423ad980f70ed4ac3ada99c56e49033150dc
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/libstagefright/bqhelper/GraphicBufferSource.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/media/libstagefright/bqhelper/GraphicBufferSource.cpp b/media/libstagefright/bqhelper/GraphicBufferSource.cpp
+index cff14ac185..2b603f65ba 100644
+--- a/media/libstagefright/bqhelper/GraphicBufferSource.cpp
++++ b/media/libstagefright/bqhelper/GraphicBufferSource.cpp
+@@ -811,7 +811,7 @@ bool GraphicBufferSource::calculateCodecTimestamp_l(
+ 
+     if (mCaptureFps > 0.
+             && (mFps > 2 * mCaptureFps
+-            || mCaptureFps > 2 * mFps)) {
++            || mCaptureFps > mFps)) {
+         // Time lapse or slow motion mode
+         if (mPrevCaptureUs < 0LL) {
+             // first capture
+
+From 0d87cac10defa55bad85f68d33cb00f6bee71e60 Mon Sep 17 00:00:00 2001
+From: Steve Kondik <steve@cyngn.com>
+Date: Tue, 4 Oct 2016 04:55:30 -0700
+Subject: [PATCH 10/71] camera: Workaround for GCC-compiled HAL3 drivers
+
+ * When starting HAL3 using an older camera library (blob),
+   the internal structure is aligned differently when compiled
+   with GCC vs. LLVM. This could cause the "mLocked" field to
+   be overwritten unintentionally, resulting in all update()
+   calls from the HAL failing with "CameraMetadata is locked"
+   even though nothing actually locked it! This would cause
+   the service to kick out the HAL, and nobody gets a camera.
+ * Cheap fix is to add a padding byte between mBuffer and
+   mLocked, and we are back in business.
+
+Change-Id: I3306e14867007a90885aca13e238dee5b49d8da2
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ camera/include/camera/CameraMetadata.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/camera/include/camera/CameraMetadata.h b/camera/include/camera/CameraMetadata.h
+index c56ee6da8b..b8f49163f7 100644
+--- a/camera/include/camera/CameraMetadata.h
++++ b/camera/include/camera/CameraMetadata.h
+@@ -249,6 +249,7 @@ class CameraMetadata: public Parcelable {
+ 
+   private:
+     camera_metadata_t *mBuffer;
++    volatile char      mReserved[3] __attribute__ ((unused));
+     mutable bool       mLocked;
+ 
+     /**
+
+From a8ace87f9fc7b25de72acd72137297e576ad58f7 Mon Sep 17 00:00:00 2001
+From: Peng Zhu <c_pzhu@codeaurora.org>
+Date: Wed, 20 Nov 2013 16:11:24 -0800
+Subject: [PATCH 11/71] Camera: Add support for manual 3A.
+
+Add manual white balance mode.
+   user can set the specific cct to lock the white balance.Just as other
+   white balance mode, it will lock the white balance once it's set, the
+   only difference it that the cct value is set from app.
+
+Add manual focus mode
+   allow app to set the focus distance with DAC value or actuator
+   step value. Once the value is set, the focus distance is locked
+   unless app switch it back to automatically mode
+
+Change-Id: I0c08ad0cea27284645e9e710c26844ca24a5c477
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ camera/CameraParameters.cpp              | 2 ++
+ camera/include/camera/CameraParameters.h | 3 +++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/camera/CameraParameters.cpp b/camera/CameraParameters.cpp
+index 99befa7968..fe6cf6cf57 100644
+--- a/camera/CameraParameters.cpp
++++ b/camera/CameraParameters.cpp
+@@ -107,6 +107,7 @@ const char CameraParameters::WHITE_BALANCE_DAYLIGHT[] = "daylight";
+ const char CameraParameters::WHITE_BALANCE_CLOUDY_DAYLIGHT[] = "cloudy-daylight";
+ const char CameraParameters::WHITE_BALANCE_TWILIGHT[] = "twilight";
+ const char CameraParameters::WHITE_BALANCE_SHADE[] = "shade";
++const char CameraParameters::WHITE_BALANCE_MANUAL_CCT[] = "manual-cct";
+ 
+ // Values for effect settings.
+ const char CameraParameters::EFFECT_NONE[] = "none";
+@@ -169,6 +170,7 @@ const char CameraParameters::FOCUS_MODE_FIXED[] = "fixed";
+ const char CameraParameters::FOCUS_MODE_EDOF[] = "edof";
+ const char CameraParameters::FOCUS_MODE_CONTINUOUS_VIDEO[] = "continuous-video";
+ const char CameraParameters::FOCUS_MODE_CONTINUOUS_PICTURE[] = "continuous-picture";
++const char CameraParameters::FOCUS_MODE_MANUAL_POSITION[] = "manual";
+ 
+ // Values for light fx settings
+ const char CameraParameters::LIGHTFX_LOWLIGHT[] = "low-light";
+diff --git a/camera/include/camera/CameraParameters.h b/camera/include/camera/CameraParameters.h
+index ba33ffe63b..88437b1695 100644
+--- a/camera/include/camera/CameraParameters.h
++++ b/camera/include/camera/CameraParameters.h
+@@ -554,6 +554,7 @@ class CameraParameters
+     static const char WHITE_BALANCE_CLOUDY_DAYLIGHT[];
+     static const char WHITE_BALANCE_TWILIGHT[];
+     static const char WHITE_BALANCE_SHADE[];
++    static const char WHITE_BALANCE_MANUAL_CCT[];
+ 
+     // Values for effect settings.
+     static const char EFFECT_NONE[];
+@@ -677,6 +678,8 @@ class CameraParameters
+     // other modes.
+     static const char FOCUS_MODE_CONTINUOUS_PICTURE[];
+ 
++    static const char FOCUS_MODE_MANUAL_POSITION[];
++
+     // Values for light special effects
+     // Low-light enhancement mode
+     static const char LIGHTFX_LOWLIGHT[];
+
+From 1b450ee7d6bc33494f9861299f11091e264c1400 Mon Sep 17 00:00:00 2001
+From: Shuzhen Wang <shuzhenwang@google.com>
+Date: Thu, 17 Mar 2022 00:11:20 +0000
+Subject: [PATCH 12/71] Camera: Call corresponding unlock for every lockAsync
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+unlock needs to be called in both success and error conditions.
+
+Bug: 224986966
+Test: Vendor testing
+Change-Id: Ia664a256504243784c849fbfc82cf94d955258f0
+Signed-off-by: Hưng Phan <phandinhhungvp2001@gmail.com>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../libcameraservice/api2/CompositeStream.h   | 35 +++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/services/camera/libcameraservice/api2/CompositeStream.h b/services/camera/libcameraservice/api2/CompositeStream.h
+index 600bd28c92..d32b71cf98 100644
+--- a/services/camera/libcameraservice/api2/CompositeStream.h
++++ b/services/camera/libcameraservice/api2/CompositeStream.h
+@@ -117,6 +117,41 @@ class CompositeStream : public camera3::Camera3StreamBufferListener {
+     // Composite streams should behave accordingly.
+     void enableErrorState();
+ 
++    // Utility class to lock and unlock a GraphicBuffer
++    class GraphicBufferLocker {
++    public:
++        GraphicBufferLocker(sp<GraphicBuffer> buffer) : _buffer(buffer) {}
++
++        status_t lockAsync(void** dstBuffer, int fenceFd) {
++            if (_buffer == nullptr) return BAD_VALUE;
++
++            status_t res = OK;
++            if (!_locked) {
++                status_t res =  _buffer->lockAsync(GRALLOC_USAGE_SW_WRITE_OFTEN,
++                        dstBuffer, fenceFd);
++                if (res == OK) {
++                    _locked = true;
++                }
++            }
++            return res;
++        }
++
++        ~GraphicBufferLocker() {
++            if (_locked && _buffer != nullptr) {
++                auto res = _buffer->unlock();
++                if (res != OK) {
++                    ALOGE("%s: Error trying to unlock buffer: %s (%d)", __FUNCTION__,
++                            strerror(-res), res);
++                }
++            }
++        }
++
++    private:
++        sp<GraphicBuffer> _buffer;
++        bool _locked = false;
++    };
++
++
+     wp<CameraDeviceBase>   mDevice;
+     wp<camera3::StatusTracker> mStatusTracker;
+     wp<hardware::camera2::ICameraDeviceCallbacks> mRemoteCallback;
+
+From 1965eb650b28b15c36f9671d345e58473dab6d75 Mon Sep 17 00:00:00 2001
+From: Gaoxiang Chen <gaochen@codeaurora.org>
+Date: Wed, 21 Jun 2017 12:57:08 +0530
+Subject: [PATCH 13/71] Camera: Skip stream size check for whitelisted apps
+
+Issue:
+For quadracfa capture, Blob/YUV output streams need to be
+configured with custom dimensions which will not be available
+in advertised stream configurations map.
+
+Fix:
+Skip the stream size check for whitelisted apps to allow
+configuration of streams with custom dimensions.
+
+Setprop to be used:
+adb shell setprop persist.vendor.camera.privapp.list <pack1,pack2>
+
+Change-Id: Id94b40c94f42bf4579dc6d8bb6273003312ea669
+
+AdarshGrewal: Inline with CAF 12
+Signed-off-by: Anirudh Gupta <anirudhgupta109@aosip.dev>
+Signed-off-by: AdarshGrewal <adarshgrewal@gmail.com>
+Change-Id: I14cc1bc07faeae013906bda27a827bb7f1d72d11
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ services/camera/libcameraservice/device3/Camera3Device.cpp | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/services/camera/libcameraservice/device3/Camera3Device.cpp b/services/camera/libcameraservice/device3/Camera3Device.cpp
+index 441aacf2bb..61678afee4 100644
+--- a/services/camera/libcameraservice/device3/Camera3Device.cpp
++++ b/services/camera/libcameraservice/device3/Camera3Device.cpp
+@@ -436,11 +436,6 @@ ssize_t Camera3Device::getJpegBufferSize(const CameraMetadata &info, uint32_t wi
+             (chosenMaxJpegResolution.width * chosenMaxJpegResolution.height);
+     ssize_t jpegBufferSize = scaleFactor * (maxJpegBufferSize - kMinJpegBufferSize) +
+             kMinJpegBufferSize;
+-    if (jpegBufferSize > maxJpegBufferSize) {
+-        ALOGI("%s: jpeg buffer size calculated is > maxJpeg bufferSize(%zd), clamping",
+-                  __FUNCTION__, maxJpegBufferSize);
+-        jpegBufferSize = maxJpegBufferSize;
+-    }
+     return jpegBufferSize;
+ }
+ 
+From 797d2c3ae08203157275d5f890e0bf11842ddd5c Mon Sep 17 00:00:00 2001
+From: Patryk Busse <pbusse@google.com>
+Date: Mon, 5 Sep 2022 11:33:07 +0000
+Subject: [PATCH 15/71] Correct crop size for software encoders
+
+When using surface crop size may be set to incorrect
+value and cause errors when copying buffers.
+To prevent that, encoders will set crop size to expected
+image size.
+
+Bug: b/232396154
+
+Test: android.mediav2.cts.CodecEncoderSurfaceTest
+      android.mediav2.cts.CodecEncoderTest
+
+Change-Id: Iafa4f9f1a49760c2b5345b8768b476a2fd7510f6
+Signed-off-by: str-br <alexfinhart@gmail.com>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/codec2/components/avc/C2SoftAvcEnc.cpp          | 7 +++++--
+ media/codec2/components/hevc/C2SoftHevcEnc.cpp        | 7 +++++--
+ media/codec2/components/mpeg4_h263/C2SoftMpeg4Enc.cpp | 7 +++++--
+ media/codec2/components/vpx/C2SoftVpxEnc.cpp          | 7 +++++--
+ 4 files changed, 20 insertions(+), 8 deletions(-)
+
+diff --git a/media/codec2/components/avc/C2SoftAvcEnc.cpp b/media/codec2/components/avc/C2SoftAvcEnc.cpp
+index 8b46d3f495..2130d48cb9 100644
+--- a/media/codec2/components/avc/C2SoftAvcEnc.cpp
++++ b/media/codec2/components/avc/C2SoftAvcEnc.cpp
+@@ -1766,17 +1766,20 @@ void C2SoftAvcEnc::process(
+     //         }
+     //     }
+     // }
+-    std::shared_ptr<const C2GraphicView> view;
++    std::shared_ptr<C2GraphicView> view;
+     std::shared_ptr<C2Buffer> inputBuffer;
+     if (!work->input.buffers.empty()) {
+         inputBuffer = work->input.buffers[0];
+-        view = std::make_shared<const C2GraphicView>(
++        view = std::make_shared<C2GraphicView>(
+                 inputBuffer->data().graphicBlocks().front().map().get());
+         if (view->error() != C2_OK) {
+             ALOGE("graphic view map err = %d", view->error());
+             work->workletsProcessed = 1u;
+             return;
+         }
++        //(b/232396154)
++        //workaround for incorrect crop size in view when using surface mode
++        view->setCrop_be(C2Rect(mSize->width, mSize->height));
+     }
+ 
+     do {
+diff --git a/media/codec2/components/hevc/C2SoftHevcEnc.cpp b/media/codec2/components/hevc/C2SoftHevcEnc.cpp
+index 60d5875264..9c26c02307 100644
+--- a/media/codec2/components/hevc/C2SoftHevcEnc.cpp
++++ b/media/codec2/components/hevc/C2SoftHevcEnc.cpp
+@@ -1109,14 +1109,14 @@ void C2SoftHevcEnc::process(const std::unique_ptr<C2Work>& work,
+         }
+     }
+ 
+-    std::shared_ptr<const C2GraphicView> view;
++    std::shared_ptr<C2GraphicView> view;
+     std::shared_ptr<C2Buffer> inputBuffer = nullptr;
+     bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
+     if (eos) mSignalledEos = true;
+ 
+     if (!work->input.buffers.empty()) {
+         inputBuffer = work->input.buffers[0];
+-        view = std::make_shared<const C2GraphicView>(
++        view = std::make_shared<C2GraphicView>(
+             inputBuffer->data().graphicBlocks().front().map().get());
+         if (view->error() != C2_OK) {
+             ALOGE("graphic view map err = %d", view->error());
+@@ -1125,6 +1125,9 @@ void C2SoftHevcEnc::process(const std::unique_ptr<C2Work>& work,
+             work->workletsProcessed = 1u;
+             return;
+         }
++        //(b/232396154)
++        //workaround for incorrect crop size in view when using surface mode
++        view->setCrop_be(C2Rect(mSize->width, mSize->height));
+     }
+     IHEVCE_PLUGIN_STATUS_T err = IHEVCE_EOK;
+ 
+diff --git a/media/codec2/components/mpeg4_h263/C2SoftMpeg4Enc.cpp b/media/codec2/components/mpeg4_h263/C2SoftMpeg4Enc.cpp
+index 3bfec668b1..d5e8c565e7 100644
+--- a/media/codec2/components/mpeg4_h263/C2SoftMpeg4Enc.cpp
++++ b/media/codec2/components/mpeg4_h263/C2SoftMpeg4Enc.cpp
+@@ -464,18 +464,21 @@ void C2SoftMpeg4Enc::process(
+         }
+     }
+ 
+-    std::shared_ptr<const C2GraphicView> rView;
++    std::shared_ptr<C2GraphicView> rView;
+     std::shared_ptr<C2Buffer> inputBuffer;
+     bool eos = ((work->input.flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
+     if (!work->input.buffers.empty()) {
+         inputBuffer = work->input.buffers[0];
+-        rView = std::make_shared<const C2GraphicView>(
++        rView = std::make_shared<C2GraphicView>(
+                 inputBuffer->data().graphicBlocks().front().map().get());
+         if (rView->error() != C2_OK) {
+             ALOGE("graphic view map err = %d", rView->error());
+             work->result = rView->error();
+             return;
+         }
++        //(b/232396154)
++        //workaround for incorrect crop size in view when using surface mode
++        rView->setCrop_be(C2Rect(mSize->width, mSize->height));
+     } else {
+         fillEmptyWork(work);
+         if (eos) {
+diff --git a/media/codec2/components/vpx/C2SoftVpxEnc.cpp b/media/codec2/components/vpx/C2SoftVpxEnc.cpp
+index f99ee248df..2efc00f181 100644
+--- a/media/codec2/components/vpx/C2SoftVpxEnc.cpp
++++ b/media/codec2/components/vpx/C2SoftVpxEnc.cpp
+@@ -683,17 +683,20 @@ void C2SoftVpxEnc::process(
+         return;
+     }
+ 
+-    std::shared_ptr<const C2GraphicView> rView;
++    std::shared_ptr<C2GraphicView> rView;
+     std::shared_ptr<C2Buffer> inputBuffer;
+     if (!work->input.buffers.empty()) {
+         inputBuffer = work->input.buffers[0];
+-        rView = std::make_shared<const C2GraphicView>(
++        rView = std::make_shared<C2GraphicView>(
+                     inputBuffer->data().graphicBlocks().front().map().get());
+         if (rView->error() != C2_OK) {
+             ALOGE("graphic view map err = %d", rView->error());
+             work->result = C2_CORRUPTED;
+             return;
+         }
++        //(b/232396154)
++        //workaround for incorrect crop size in view when using surface mode
++        rView->setCrop_be(C2Rect(mSize->width, mSize->height));
+     } else {
+         ALOGV("Empty input Buffer");
+         uint32_t flags = 0;
+
+From 611bb94395dc2f0980298714bf58eb45fa89b05d Mon Sep 17 00:00:00 2001
+From: Taehwan Kim <t_h.kim@samsung.com>
+Date: Thu, 22 Sep 2022 12:04:59 +0900
+Subject: [PATCH 16/71] CCodec: fix not to use YV12 format on
+ COLOR_FormatYUV420Flexible for pre-S
+
+COLOR_FormatYUV420Flexible has been mapped to
+HAL_PIXEL_FORMAT_YCBCR_420_888 at pre-S devices since android R.
+for backward compatibility, it should be handled by
+HAL_PIXEL_FORMAT_YCBCR_420_888.
+
+Bug: 248144271
+
+Signed-off-by: Taehwan Kim <t_h.kim@samsung.com>
+Change-Id: I8acdd105c6fe90403bc83bc567736652e838df43
+(cherry picked from commit 43e715d9d91771323fcdd8f5416d5f188914ba0e)
+Merged-In: I8acdd105c6fe90403bc83bc567736652e838df43
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/codec2/sfplugin/CCodec.cpp | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/media/codec2/sfplugin/CCodec.cpp b/media/codec2/sfplugin/CCodec.cpp
+index 296d7ed771..a11d7893c6 100644
+--- a/media/codec2/sfplugin/CCodec.cpp
++++ b/media/codec2/sfplugin/CCodec.cpp
+@@ -1075,8 +1075,7 @@ void CCodec::configure(const sp<AMessage> &msg) {
+             } else {
+                 if ((config->mDomain & Config::IS_ENCODER) || !surface) {
+                     if (vendorSdkVersion < __ANDROID_API_S__ &&
+-                            (format == COLOR_FormatYUV420Flexible ||
+-                             format == COLOR_FormatYUV420Planar ||
++                            (format == COLOR_FormatYUV420Planar ||
+                              format == COLOR_FormatYUV420PackedPlanar ||
+                              format == COLOR_FormatYUV420SemiPlanar ||
+                              format == COLOR_FormatYUV420PackedSemiPlanar)) {
+
+From 0a8799d101b16b94a84622e58bddb18f9346d276 Mon Sep 17 00:00:00 2001
+From: Andy Hung <hunga@google.com>
+Date: Wed, 14 Sep 2022 17:24:19 -0700
+Subject: [PATCH 17/71] MediaMetrics: Fix inaccurate attribution of thread
+ device
+
+CreatePatch metric was overwriting the input and output device
+before endIntervalGroup was called.
+
+Use a separate last device field to send the device associated with
+the endIntervalGroup.
+
+Fix an issue with multiple devices that the '|' was not embedded
+in the device string.
+
+Test: adb shell dumpsys media.metrics
+Bug: 247029889
+Bug: 247907183
+Merged-In: I659d9643782ff03ce5b196cce9f2e9d09c4e609c
+Change-Id: I659d9643782ff03ce5b196cce9f2e9d09c4e609c
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../include/MediaMetricsConstants.h           |   1 +
+ services/audioflinger/ThreadMetrics.h         |   9 +-
+ services/mediametrics/AudioAnalytics.cpp      | 130 +++++++++---------
+ services/mediametrics/StringUtils.cpp         |  28 ++++
+ .../mediametricsservice/AudioAnalytics.h      |   7 +
+ .../include/mediametricsservice/StringUtils.h |  10 ++
+ 6 files changed, 117 insertions(+), 68 deletions(-)
+
+diff --git a/media/libmediametrics/include/MediaMetricsConstants.h b/media/libmediametrics/include/MediaMetricsConstants.h
+index 1c30510222..94200833f3 100644
+--- a/media/libmediametrics/include/MediaMetricsConstants.h
++++ b/media/libmediametrics/include/MediaMetricsConstants.h
+@@ -83,6 +83,7 @@
+ #define AMEDIAMETRICS_PROP_PREFIX_EFFECTIVE "effective."
+ #define AMEDIAMETRICS_PROP_PREFIX_HAL       "hal."
+ #define AMEDIAMETRICS_PROP_PREFIX_HAPTIC    "haptic."
++#define AMEDIAMETRICS_PROP_PREFIX_LAST      "last."
+ #define AMEDIAMETRICS_PROP_PREFIX_SERVER    "server."
+ 
+ // Properties within mediametrics are string constants denoted by
+diff --git a/services/audioflinger/ThreadMetrics.h b/services/audioflinger/ThreadMetrics.h
+index 652665535f..5493b3cf58 100644
+--- a/services/audioflinger/ThreadMetrics.h
++++ b/services/audioflinger/ThreadMetrics.h
+@@ -148,7 +148,14 @@ class ThreadMetrics final {
+             item.set(AMEDIAMETRICS_PROP_CUMULATIVETIMENS, mCumulativeTimeNs)
+                 .set(AMEDIAMETRICS_PROP_DEVICETIMENS, mDeviceTimeNs)
+                 .set(AMEDIAMETRICS_PROP_EVENT, eventName)
+-                .set(AMEDIAMETRICS_PROP_INTERVALCOUNT, (int32_t)mIntervalCount);
++                .set(AMEDIAMETRICS_PROP_INTERVALCOUNT, (int32_t)mIntervalCount)
++                // we set "last" device to indicate the device the group was
++                // associated with (because a createPatch which is logged in ThreadMetrics
++                // could have changed the device).
++                .set(mIsOut
++                        ? AMEDIAMETRICS_PROP_PREFIX_LAST AMEDIAMETRICS_PROP_OUTPUTDEVICES
++                        : AMEDIAMETRICS_PROP_PREFIX_LAST AMEDIAMETRICS_PROP_INPUTDEVICES,
++                        mDevices.c_str());
+             if (mDeviceLatencyMs.getN() > 0) {
+                 item.set(AMEDIAMETRICS_PROP_DEVICELATENCYMS, mDeviceLatencyMs.getMean());
+             }
+diff --git a/services/mediametrics/AudioAnalytics.cpp b/services/mediametrics/AudioAnalytics.cpp
+index 99e36914c2..1b843e38b8 100644
+--- a/services/mediametrics/AudioAnalytics.cpp
++++ b/services/mediametrics/AudioAnalytics.cpp
+@@ -750,15 +750,9 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+     int32_t frameCount = 0;
+     mAudioAnalytics.mAnalyticsState->timeMachine().get(
+             key, AMEDIAMETRICS_PROP_FRAMECOUNT, &frameCount);
+-    std::string inputDevicePairs;
+-    mAudioAnalytics.mAnalyticsState->timeMachine().get(
+-            key, AMEDIAMETRICS_PROP_INPUTDEVICES, &inputDevicePairs);
+     int32_t intervalCount = 0;
+     mAudioAnalytics.mAnalyticsState->timeMachine().get(
+             key, AMEDIAMETRICS_PROP_INTERVALCOUNT, &intervalCount);
+-    std::string outputDevicePairs;
+-    mAudioAnalytics.mAnalyticsState->timeMachine().get(
+-            key, AMEDIAMETRICS_PROP_OUTPUTDEVICES, &outputDevicePairs);
+     int32_t sampleRate = 0;
+     mAudioAnalytics.mAnalyticsState->timeMachine().get(
+             key, AMEDIAMETRICS_PROP_SAMPLERATE, &sampleRate);
+@@ -766,53 +760,16 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+     mAudioAnalytics.mAnalyticsState->timeMachine().get(
+             key, AMEDIAMETRICS_PROP_FLAGS, &flags);
+ 
+-    // We may have several devices.
+-    // Accumulate the bit flags for input and output devices.
+-    std::stringstream oss;
+-    long_enum_type_t outputDeviceBits{};
+-    {   // compute outputDevices
+-        const auto devaddrvec = stringutils::getDeviceAddressPairs(outputDevicePairs);
+-        for (const auto& [device, addr] : devaddrvec) {
+-            if (oss.tellp() > 0) oss << "|";  // delimit devices with '|'.
+-            oss << device;
+-            outputDeviceBits += types::lookup<types::OUTPUT_DEVICE, long_enum_type_t>(device);
+-        }
+-    }
+-    const std::string outputDevices = oss.str();
+-
+-    std::stringstream iss;
+-    long_enum_type_t inputDeviceBits{};
+-    {   // compute inputDevices
+-        const auto devaddrvec = stringutils::getDeviceAddressPairs(inputDevicePairs);
+-        for (const auto& [device, addr] : devaddrvec) {
+-            if (iss.tellp() > 0) iss << "|";  // delimit devices with '|'.
+-            iss << device;
+-            inputDeviceBits += types::lookup<types::INPUT_DEVICE, long_enum_type_t>(device);
+-        }
+-    }
+-    const std::string inputDevices = iss.str();
+-
+-    // Get connected device name if from bluetooth.
+-    bool isBluetooth = false;
+-
+-    std::string inputDeviceNames;  // not filled currently.
+-    std::string outputDeviceNames;
+-    if (outputDevices.find("AUDIO_DEVICE_OUT_BLUETOOTH") != std::string::npos) {
+-        isBluetooth = true;
+-        outputDeviceNames = SUPPRESSED;
+-#if 0   // TODO(b/161554630) sanitize name
+-        mAudioAnalytics.mAnalyticsState->timeMachine().get(
+-            "audio.device.bt_a2dp", AMEDIAMETRICS_PROP_NAME, &outputDeviceNames);
+-        // Remove | if present
+-        stringutils::replace(outputDeviceNames, "|", '?');
+-        if (outputDeviceNames.size() > STATSD_DEVICE_NAME_MAX_LENGTH) {
+-            outputDeviceNames.resize(STATSD_DEVICE_NAME_MAX_LENGTH); // truncate
+-        }
+-#endif
+-    }
+-
+     switch (itemType) {
+     case RECORD: {
++        std::string inputDevicePairs;
++        mAudioAnalytics.mAnalyticsState->timeMachine().get(
++                key, AMEDIAMETRICS_PROP_INPUTDEVICES, &inputDevicePairs);
++
++        const auto [ inputDeviceStatsd, inputDevices ] =
++                stringutils::parseInputDevicePairs(inputDevicePairs);
++        const std::string inputDeviceNames;  // not filled currently.
++
+         std::string callerName;
+         const bool clientCalled = mAudioAnalytics.mAnalyticsState->timeMachine().get(
+                 key, AMEDIAMETRICS_PROP_CALLERNAME, &callerName) == OK;
+@@ -848,7 +805,7 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+ 
+         LOG(LOG_LEVEL) << "key:" << key
+               << " id:" << id
+-              << " inputDevices:" << inputDevices << "(" << inputDeviceBits
++              << " inputDevices:" << inputDevices << "(" << inputDeviceStatsd
+               << ") inputDeviceNames:" << inputDeviceNames
+               << " deviceTimeNs:" << deviceTimeNs
+               << " encoding:" << encoding << "(" << encodingForStats
+@@ -866,7 +823,7 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+                 && mAudioAnalytics.mDeliverStatistics) {
+             const auto [ result, str ] = sendToStatsd(AudioRecordDeviceUsageFields,
+                     CONDITION(android::util::MEDIAMETRICS_AUDIORECORDDEVICEUSAGE_REPORTED)
+-                    , ENUM_EXTRACT(inputDeviceBits)
++                    , ENUM_EXTRACT(inputDeviceStatsd)
+                     , inputDeviceNames.c_str()
+                     , deviceTimeNs
+                     , ENUM_EXTRACT(encodingForStats)
+@@ -895,18 +852,35 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+                 key, AMEDIAMETRICS_PROP_UNDERRUN, &underrun);
+ 
+         const bool isInput = types::isInputThreadType(type);
++
++        // get device information
++        std::string devicePairs;
++        std::string deviceStatsd;
++        std::string devices;
++        std::string deviceNames;
++        if (isInput) {
++            // Note we get the "last" device which is the one associated with group.
++            item->get(AMEDIAMETRICS_PROP_PREFIX_LAST AMEDIAMETRICS_PROP_INPUTDEVICES,
++                    &devicePairs);
++            std::tie(deviceStatsd, devices) = stringutils::parseInputDevicePairs(devicePairs);
++        } else {
++            // Note we get the "last" device which is the one associated with group.
++            item->get(AMEDIAMETRICS_PROP_PREFIX_LAST AMEDIAMETRICS_PROP_OUTPUTDEVICES,
++                    &devicePairs);
++            std::tie(deviceStatsd, devices) = stringutils::parseOutputDevicePairs(devicePairs);
++            deviceNames = mAudioAnalytics.getDeviceNamesFromOutputDevices(devices);
++        }
++
+         const auto encodingForStats = types::lookup<types::ENCODING, short_enum_type_t>(encoding);
+         const auto flagsForStats =
+                 (isInput ? types::lookup<types::INPUT_FLAG, short_enum_type_t>(flags)
+                         : types::lookup<types::OUTPUT_FLAG, short_enum_type_t>(flags));
+         const auto typeForStats = types::lookup<types::THREAD_TYPE, short_enum_type_t>(type);
+ 
+-        LOG(LOG_LEVEL) << "key:" << key
++         LOG(LOG_LEVEL) << "key:" << key
+               << " id:" << id
+-              << " inputDevices:" << inputDevices << "(" << inputDeviceBits
+-              << ") outputDevices:" << outputDevices << "(" << outputDeviceBits
+-              << ") inputDeviceNames:" << inputDeviceNames
+-              << " outputDeviceNames:" << outputDeviceNames
++              << " devices:" << devices << "(" << deviceStatsd
++              << ") deviceNames:" << deviceNames
+               << " deviceTimeNs:" << deviceTimeNs
+               << " encoding:" << encoding << "(" << encodingForStats
+               << ") frameCount:" << frameCount
+@@ -919,8 +893,8 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+         if (mAudioAnalytics.mDeliverStatistics) {
+             const auto [ result, str ] = sendToStatsd(AudioThreadDeviceUsageFields,
+                 CONDITION(android::util::MEDIAMETRICS_AUDIOTHREADDEVICEUSAGE_REPORTED)
+-                , isInput ? ENUM_EXTRACT(inputDeviceBits) : ENUM_EXTRACT(outputDeviceBits)
+-                , isInput ? inputDeviceNames.c_str() : outputDeviceNames.c_str()
++                , ENUM_EXTRACT(deviceStatsd)
++                , deviceNames.c_str()
+                 , deviceTimeNs
+                 , ENUM_EXTRACT(encodingForStats)
+                 , frameCount
+@@ -936,6 +910,15 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+         }
+     } break;
+     case TRACK: {
++        std::string outputDevicePairs;
++        mAudioAnalytics.mAnalyticsState->timeMachine().get(
++                key, AMEDIAMETRICS_PROP_OUTPUTDEVICES, &outputDevicePairs);
++
++        const auto [ outputDeviceStatsd, outputDevices ] =
++                stringutils::parseOutputDevicePairs(outputDevicePairs);
++        const std::string outputDeviceNames =
++                mAudioAnalytics.getDeviceNamesFromOutputDevices(outputDevices);
++
+         std::string callerName;
+         const bool clientCalled = mAudioAnalytics.mAnalyticsState->timeMachine().get(
+                 key, AMEDIAMETRICS_PROP_CALLERNAME, &callerName) == OK;
+@@ -1003,7 +986,7 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+ 
+         LOG(LOG_LEVEL) << "key:" << key
+               << " id:" << id
+-              << " outputDevices:" << outputDevices << "(" << outputDeviceBits
++              << " outputDevices:" << outputDevices << "(" << outputDeviceStatsd
+               << ") outputDeviceNames:" << outputDeviceNames
+               << " deviceTimeNs:" << deviceTimeNs
+               << " encoding:" << encoding << "(" << encodingForStats
+@@ -1030,7 +1013,7 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+                 && mAudioAnalytics.mDeliverStatistics) {
+             const auto [ result, str ] = sendToStatsd(AudioTrackDeviceUsageFields,
+                     CONDITION(android::util::MEDIAMETRICS_AUDIOTRACKDEVICEUSAGE_REPORTED)
+-                    , ENUM_EXTRACT(outputDeviceBits)
++                    , ENUM_EXTRACT(outputDeviceStatsd)
+                     , outputDeviceNames.c_str()
+                     , deviceTimeNs
+                     , ENUM_EXTRACT(encodingForStats)
+@@ -1057,11 +1040,6 @@ void AudioAnalytics::DeviceUse::endAudioIntervalGroup(
+         }
+         } break;
+     }
+-
+-    // Report this as needed.
+-    if (isBluetooth) {
+-        // report this for Bluetooth
+-    }
+ }
+ 
+ // DeviceConnection helper class.
+@@ -1526,4 +1504,22 @@ std::pair<std::string, int32_t> AudioAnalytics::Health::dump(
+ }
+ 
+ 
++// This method currently suppresses the name.
++std::string AudioAnalytics::getDeviceNamesFromOutputDevices(std::string_view devices) const {
++    std::string deviceNames;
++    if (stringutils::hasBluetoothOutputDevice(devices)) {
++        deviceNames = SUPPRESSED;
++#if 0   // TODO(b/161554630) sanitize name
++        mAudioAnalytics.mAnalyticsState->timeMachine().get(
++            "audio.device.bt_a2dp", AMEDIAMETRICS_PROP_NAME, &deviceNames);
++        // Remove | if present
++        stringutils::replace(deviceNames, "|", '?');
++        if (deviceNames.size() > STATSD_DEVICE_NAME_MAX_LENGTH) {
++            deviceNames.resize(STATSD_DEVICE_NAME_MAX_LENGTH); // truncate
++        }
++#endif
++    }
++    return deviceNames;
++}
++
+ } // namespace android::mediametrics
+diff --git a/services/mediametrics/StringUtils.cpp b/services/mediametrics/StringUtils.cpp
+index 50525bcb6e..d1c7a18c8c 100644
+--- a/services/mediametrics/StringUtils.cpp
++++ b/services/mediametrics/StringUtils.cpp
+@@ -20,6 +20,8 @@
+ 
+ #include "StringUtils.h"
+ 
++#include "AudioTypes.h"
++
+ namespace android::mediametrics::stringutils {
+ 
+ std::string tokenizer(std::string::const_iterator& it,
+@@ -99,4 +101,30 @@ size_t replace(std::string &str, const char *targetChars, const char replaceChar
+     return replaced;
+ }
+ 
++template <types::AudioEnumCategory CATEGORY>
++std::pair<std::string /* external statsd */, std::string /* internal */>
++parseDevicePairs(const std::string& devicePairs) {
++    std::pair<std::string, std::string> result{};
++    const auto devaddrvec = stringutils::getDeviceAddressPairs(devicePairs);
++    for (const auto& [device, addr] : devaddrvec) { // addr ignored for now.
++        if (!result.second.empty()) {
++            result.second.append("|"); // delimit devices with '|'.
++            result.first.append("|");
++        }
++        result.second.append(device);
++        result.first.append(types::lookup<CATEGORY, std::string>(device));
++    }
++    return result;
++}
++
++std::pair<std::string /* external statsd */, std::string /* internal */>
++parseOutputDevicePairs(const std::string& devicePairs) {
++    return parseDevicePairs<types::OUTPUT_DEVICE>(devicePairs);
++}
++
++std::pair<std::string /* external statsd */, std::string /* internal */>
++parseInputDevicePairs(const std::string& devicePairs) {
++    return parseDevicePairs<types::INPUT_DEVICE>(devicePairs);
++}
++
+ } // namespace android::mediametrics::stringutils
+diff --git a/services/mediametrics/include/mediametricsservice/AudioAnalytics.h b/services/mediametrics/include/mediametricsservice/AudioAnalytics.h
+index 5ee8c304fa..8e5b46b45a 100644
+--- a/services/mediametrics/include/mediametricsservice/AudioAnalytics.h
++++ b/services/mediametrics/include/mediametricsservice/AudioAnalytics.h
+@@ -152,6 +152,13 @@ class AudioAnalytics
+      */
+     std::string getThreadFromTrack(const std::string& track) const;
+ 
++    /**
++     * return the device name, if present.
++     *
++     * This is currently enabled only for Bluetooth output devices.
++     */
++    std::string getDeviceNamesFromOutputDevices(std::string_view devices) const;
++
+     const bool mDeliverStatistics;
+ 
+     // Actions is individually locked
+diff --git a/services/mediametrics/include/mediametricsservice/StringUtils.h b/services/mediametrics/include/mediametricsservice/StringUtils.h
+index a56f5b8dc4..d86eda61af 100644
+--- a/services/mediametrics/include/mediametricsservice/StringUtils.h
++++ b/services/mediametrics/include/mediametricsservice/StringUtils.h
+@@ -204,4 +204,14 @@ inline std::pair<std::string /* prefix */,
+     return { key, "" };
+ }
+ 
++std::pair<std::string /* external statsd */, std::string /* internal */>
++parseOutputDevicePairs(const std::string& outputDevicePairs);
++
++std::pair<std::string /* external statsd */, std::string /* internal */>
++parseInputDevicePairs(const std::string& inputDevicePairs);
++
++inline bool hasBluetoothOutputDevice(std::string_view devices) {
++    return devices.find("AUDIO_DEVICE_OUT_BLUETOOTH") != std::string::npos;
++}
++
+ } // namespace android::mediametrics::stringutils
+
+From 299a10229ceeefeb80ccc91c18124b8a00fc1a9b Mon Sep 17 00:00:00 2001
+From: Yinchu Chen <chenyc5@motorola.com>
+Date: Wed, 21 Sep 2022 06:39:05 +0000
+Subject: [PATCH 18/71] Do not support direct effect when the non-offload
+ effect is enabled
+
+When the non-offload effect is ON, no other direct tracks can be created, which means
+that the API reports the direct profiles are not available/supported by the device.
+
+Bug: b/246759253
+
+Test: CTS - android.media.audio.cts.DirectAudioProfilesForAttributesTest
+Merged-In: Ifa83be883c81925a757fd121f51c5d476fb9cdf8
+Change-Id: Ifa83be883c81925a757fd121f51c5d476fb9cdf8
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ services/audiopolicy/managerdefault/AudioPolicyManager.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+index 744609f27b..54eb1b74fa 100644
+--- a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
++++ b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+@@ -4081,6 +4081,10 @@ audio_direct_mode_t AudioPolicyManager::getDirectPlaybackSupport(const audio_att
+ 
+ status_t AudioPolicyManager::getDirectProfilesForAttributes(const audio_attributes_t* attr,
+                                                 AudioProfileVector& audioProfilesVector) {
++    if (mEffects.isNonOffloadableEffectEnabled()) {
++        return OK;
++    }
++
+     AudioDeviceTypeAddrVector devices;
+     status_t status = getDevicesForAttributes(*attr, &devices, false /* forVolume */);
+     if (status != OK) {
+
+From 52e127d5b079168e37d13eab069c1e37cf17471c Mon Sep 17 00:00:00 2001
+From: Xiao Huang <xiaohx@google.com>
+Date: Mon, 12 Sep 2022 15:20:12 +0000
+Subject: [PATCH 19/71] Replace List by std::list in ACodec and MediaCodec
+
+As List.h says: DO NOT USE, please use std::list
+Test: presubmit
+
+Change-Id: Ic118216a0bf819cebaf743ba727678c0f8281b40
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/libstagefright/ACodec.cpp                            | 7 +++----
+ media/libstagefright/MediaCodec.cpp                        | 4 ++--
+ media/libstagefright/include/media/stagefright/ACodec.h    | 3 ++-
+ .../libstagefright/include/media/stagefright/MediaCodec.h  | 5 +++--
+ 4 files changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/media/libstagefright/ACodec.cpp b/media/libstagefright/ACodec.cpp
+index 52c4c0f523..9a928e6739 100644
+--- a/media/libstagefright/ACodec.cpp
++++ b/media/libstagefright/ACodec.cpp
+@@ -5167,12 +5167,11 @@ void ACodec::deferMessage(const sp<AMessage> &msg) {
+ }
+ 
+ void ACodec::processDeferredMessages() {
+-    List<sp<AMessage> > queue = mDeferredQueue;
++    std::list<sp<AMessage>> queue = mDeferredQueue;
+     mDeferredQueue.clear();
+ 
+-    List<sp<AMessage> >::iterator it = queue.begin();
+-    while (it != queue.end()) {
+-        onMessageReceived(*it++);
++    for(const sp<AMessage> &msg : queue) {
++        onMessageReceived(msg);
+     }
+ }
+ 
+diff --git a/media/libstagefright/MediaCodec.cpp b/media/libstagefright/MediaCodec.cpp
+index e50880a94b..bbe31dc4f9 100644
+--- a/media/libstagefright/MediaCodec.cpp
++++ b/media/libstagefright/MediaCodec.cpp
+@@ -5286,7 +5286,7 @@ status_t MediaCodec::onReleaseOutputBuffer(const sp<AMessage> &msg) {
+ MediaCodec::BufferInfo *MediaCodec::peekNextPortBuffer(int32_t portIndex) {
+     CHECK(portIndex == kPortIndexInput || portIndex == kPortIndexOutput);
+ 
+-    List<size_t> *availBuffers = &mAvailPortBuffers[portIndex];
++    std::list<size_t> *availBuffers = &mAvailPortBuffers[portIndex];
+ 
+     if (availBuffers->empty()) {
+         return nullptr;
+@@ -5303,7 +5303,7 @@ ssize_t MediaCodec::dequeuePortBuffer(int32_t portIndex) {
+         return -EAGAIN;
+     }
+ 
+-    List<size_t> *availBuffers = &mAvailPortBuffers[portIndex];
++    std::list<size_t> *availBuffers = &mAvailPortBuffers[portIndex];
+     size_t index = *availBuffers->begin();
+     CHECK_EQ(info, &mPortBuffers[portIndex][index]);
+     availBuffers->erase(availBuffers->begin());
+diff --git a/media/libstagefright/include/media/stagefright/ACodec.h b/media/libstagefright/include/media/stagefright/ACodec.h
+index 5a217554d9..777e2e6d28 100644
+--- a/media/libstagefright/include/media/stagefright/ACodec.h
++++ b/media/libstagefright/include/media/stagefright/ACodec.h
+@@ -18,6 +18,7 @@
+ #define A_CODEC_H_
+ 
+ #include <stdint.h>
++#include <list>
+ #include <android/native_window.h>
+ #include <media/hardware/MetadataBufferType.h>
+ #include <media/MediaCodecInfo.h>
+@@ -269,7 +270,7 @@ struct ACodec : public AHierarchicalStateMachine, public CodecBase {
+     bool mPortEOS[2];
+     status_t mInputEOSResult;
+ 
+-    List<sp<AMessage> > mDeferredQueue;
++    std::list<sp<AMessage>> mDeferredQueue;
+ 
+     sp<AMessage> mLastOutputFormat;
+     bool mIsVideo;
+diff --git a/media/libstagefright/include/media/stagefright/MediaCodec.h b/media/libstagefright/include/media/stagefright/MediaCodec.h
+index 1d2d711697..6f6a4e631f 100644
+--- a/media/libstagefright/include/media/stagefright/MediaCodec.h
++++ b/media/libstagefright/include/media/stagefright/MediaCodec.h
+@@ -18,6 +18,7 @@
+ 
+ #define MEDIA_CODEC_H_
+ 
++#include <list>
+ #include <memory>
+ #include <vector>
+ 
+@@ -483,7 +484,7 @@ struct MediaCodec : public AHandler {
+     // stop/flush/reset/release.
+     Mutex mBufferLock;
+ 
+-    List<size_t> mAvailPortBuffers[2];
++    std::list<size_t> mAvailPortBuffers[2];
+     std::vector<BufferInfo> mPortBuffers[2];
+ 
+     int32_t mDequeueInputTimeoutGeneration;
+@@ -501,7 +502,7 @@ struct MediaCodec : public AHandler {
+ 
+     sp<IDescrambler> mDescrambler;
+ 
+-    List<sp<ABuffer> > mCSD;
++    std::list<sp<ABuffer> > mCSD;
+ 
+     sp<AMessage> mActivityNotify;
+ 
+
+From 4c5eb109f855e1e6b447b20e1fa1117c4f816256 Mon Sep 17 00:00:00 2001
+From: Xiao Huang <xiaohx@google.com>
+Date: Fri, 9 Sep 2022 13:54:10 +0000
+Subject: [PATCH 20/71] Replace Vector by std::vector in ACodec
+
+As Vector.h says DO NOT USE: please use std::vector
+
+Test: presubmit
+Change-Id: Ie6e2ac2cd959b96bd4e31aeb3b123f5a29497b47
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/libstagefright/ACodec.cpp               | 51 ++++++++++---------
+ .../include/media/stagefright/ACodec.h        |  3 +-
+ 2 files changed, 28 insertions(+), 26 deletions(-)
+
+diff --git a/media/libstagefright/ACodec.cpp b/media/libstagefright/ACodec.cpp
+index 9a928e6739..f15e06241f 100644
+--- a/media/libstagefright/ACodec.cpp
++++ b/media/libstagefright/ACodec.cpp
+@@ -785,7 +785,7 @@ status_t ACodec::handleSetSurface(const sp<Surface> &surface) {
+ 
+     // we cannot change the number of output buffers while OMX is running
+     // set up surface to the same count
+-    Vector<BufferInfo> &buffers = mBuffers[kPortIndexOutput];
++    std::vector<BufferInfo> &buffers = mBuffers[kPortIndexOutput];
+     ALOGV("setting up surface for %zu buffers", buffers.size());
+ 
+     err = native_window_set_buffer_count(nativeWindow, buffers.size());
+@@ -825,7 +825,7 @@ status_t ACodec::handleSetSurface(const sp<Surface> &surface) {
+     // cancel undequeued buffers to new surface
+     if (!storingMetadataInDecodedBuffers()) {
+         for (size_t i = 0; i < buffers.size(); ++i) {
+-            BufferInfo &info = buffers.editItemAt(i);
++            BufferInfo &info = buffers[i];
+             if (info.mStatus == BufferInfo::OWNED_BY_NATIVE_WINDOW) {
+                 ALOGV("canceling buffer %p", info.mGraphicBuffer->getNativeBuffer());
+                 err = nativeWindow->cancelBuffer(
+@@ -872,7 +872,7 @@ status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
+     CHECK(portIndex == kPortIndexInput || portIndex == kPortIndexOutput);
+ 
+     CHECK(mAllocator[portIndex] == NULL);
+-    CHECK(mBuffers[portIndex].isEmpty());
++    CHECK(mBuffers[portIndex].empty());
+ 
+     status_t err;
+     if (mNativeWindow != NULL && portIndex == kPortIndexOutput) {
+@@ -951,6 +951,7 @@ status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
+ 
+             const sp<AMessage> &format =
+                     portIndex == kPortIndexInput ? mInputFormat : mOutputFormat;
++            mBuffers[portIndex].reserve(def.nBufferCountActual);
+             for (OMX_U32 i = 0; i < def.nBufferCountActual && err == OK; ++i) {
+                 hidl_memory hidlMemToken;
+                 sp<TMemory> hidlMem;
+@@ -1039,7 +1040,7 @@ status_t ACodec::allocateBuffersOnPort(OMX_U32 portIndex) {
+                     }
+                 }
+ 
+-                mBuffers[portIndex].push(info);
++                mBuffers[portIndex].push_back(info);
+             }
+         }
+     }
+@@ -1250,6 +1251,7 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
+          mComponentName.c_str(), bufferCount, bufferSize);
+ 
+     // Dequeue buffers and send them to OMX
++    mBuffers[kPortIndexOutput].reserve(bufferCount);
+     for (OMX_U32 i = 0; i < bufferCount; i++) {
+         ANativeWindowBuffer *buf;
+         int fenceFd;
+@@ -1275,7 +1277,7 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
+         info.mData = new MediaCodecBuffer(mOutputFormat, new ABuffer(bufferSize));
+         info.mCodecData = info.mData;
+ 
+-        mBuffers[kPortIndexOutput].push(info);
++        mBuffers[kPortIndexOutput].push_back(info);
+ 
+         IOMX::buffer_id bufferId;
+         err = mOMXNode->useBuffer(kPortIndexOutput, graphicBuffer, &bufferId);
+@@ -1285,7 +1287,7 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
+             break;
+         }
+ 
+-        mBuffers[kPortIndexOutput].editItemAt(i).mBufferID = bufferId;
++        mBuffers[kPortIndexOutput][i].mBufferID = bufferId;
+ 
+         ALOGV("[%s] Registered graphic buffer with ID %u (pointer = %p)",
+              mComponentName.c_str(),
+@@ -1307,7 +1309,7 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
+     }
+ 
+     for (OMX_U32 i = cancelStart; i < cancelEnd; i++) {
+-        BufferInfo *info = &mBuffers[kPortIndexOutput].editItemAt(i);
++        BufferInfo *info = &mBuffers[kPortIndexOutput][i];
+         if (info->mStatus == BufferInfo::OWNED_BY_US) {
+             status_t error = cancelBufferToNativeWindow(info);
+             if (err == 0) {
+@@ -1336,6 +1338,7 @@ status_t ACodec::allocateOutputMetadataBuffers() {
+     ALOGV("[%s] Allocating %u meta buffers on output port",
+          mComponentName.c_str(), bufferCount);
+ 
++    mBuffers[kPortIndexOutput].reserve(bufferCount);
+     for (OMX_U32 i = 0; i < bufferCount; i++) {
+         BufferInfo info;
+         info.mStatus = BufferInfo::OWNED_BY_NATIVE_WINDOW;
+@@ -1353,7 +1356,7 @@ status_t ACodec::allocateOutputMetadataBuffers() {
+         info.mCodecData = info.mData;
+ 
+         err = mOMXNode->useBuffer(kPortIndexOutput, OMXBuffer::sPreset, &info.mBufferID);
+-        mBuffers[kPortIndexOutput].push(info);
++        mBuffers[kPortIndexOutput].push_back(info);
+ 
+         ALOGV("[%s] allocated meta buffer with ID %u",
+                 mComponentName.c_str(), info.mBufferID);
+@@ -1462,7 +1465,7 @@ void ACodec::notifyOfRenderedFrames(bool dropIncomplete, FrameRenderTracker::Inf
+             it != done.cend(); ++it) {
+         ssize_t index = it->getIndex();
+         if (index >= 0 && (size_t)index < mBuffers[kPortIndexOutput].size()) {
+-            mBuffers[kPortIndexOutput].editItemAt(index).mRenderInfo = NULL;
++            mBuffers[kPortIndexOutput][index].mRenderInfo = NULL;
+         } else if (index >= 0) {
+             // THIS SHOULD NEVER HAPPEN
+             ALOGE("invalid index %zd in %zu", index, mBuffers[kPortIndexOutput].size());
+@@ -1502,7 +1505,7 @@ ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
+         bool stale = false;
+         for (size_t i = mBuffers[kPortIndexOutput].size(); i > 0;) {
+             i--;
+-            BufferInfo *info = &mBuffers[kPortIndexOutput].editItemAt(i);
++            BufferInfo *info = &mBuffers[kPortIndexOutput][i];
+ 
+             if (info->mGraphicBuffer != NULL &&
+                     info->mGraphicBuffer->handle == buf->handle) {
+@@ -1550,8 +1553,7 @@ ACodec::BufferInfo *ACodec::dequeueBufferFromNativeWindow() {
+     BufferInfo *oldest = NULL;
+     for (size_t i = mBuffers[kPortIndexOutput].size(); i > 0;) {
+         i--;
+-        BufferInfo *info =
+-            &mBuffers[kPortIndexOutput].editItemAt(i);
++        BufferInfo *info = &mBuffers[kPortIndexOutput][i];
+         if (info->mStatus == BufferInfo::OWNED_BY_NATIVE_WINDOW &&
+             (oldest == NULL ||
+              // avoid potential issues from counter rolling over
+@@ -1608,8 +1610,7 @@ status_t ACodec::freeOutputBuffersNotOwnedByComponent() {
+     status_t err = OK;
+     for (size_t i = mBuffers[kPortIndexOutput].size(); i > 0;) {
+         i--;
+-        BufferInfo *info =
+-            &mBuffers[kPortIndexOutput].editItemAt(i);
++        BufferInfo *info = &mBuffers[kPortIndexOutput][i];
+ 
+         // At this time some buffers may still be with the component
+         // or being drained.
+@@ -1626,7 +1627,7 @@ status_t ACodec::freeOutputBuffersNotOwnedByComponent() {
+ }
+ 
+ status_t ACodec::freeBuffer(OMX_U32 portIndex, size_t i) {
+-    BufferInfo *info = &mBuffers[portIndex].editItemAt(i);
++    BufferInfo *info = &mBuffers[portIndex][i];
+     status_t err = OK;
+ 
+     // there should not be any fences in the metadata
+@@ -1666,14 +1667,14 @@ status_t ACodec::freeBuffer(OMX_U32 portIndex, size_t i) {
+     }
+ 
+     // remove buffer even if mOMXNode->freeBuffer fails
+-    mBuffers[portIndex].removeAt(i);
++    mBuffers[portIndex].erase(mBuffers[portIndex].begin() + i);
+     return err;
+ }
+ 
+ ACodec::BufferInfo *ACodec::findBufferByID(
+         uint32_t portIndex, IOMX::buffer_id bufferID, ssize_t *index) {
+     for (size_t i = 0; i < mBuffers[portIndex].size(); ++i) {
+-        BufferInfo *info = &mBuffers[portIndex].editItemAt(i);
++        BufferInfo *info = &mBuffers[portIndex][i];
+ 
+         if (info->mBufferID == bufferID) {
+             if (index != NULL) {
+@@ -5102,7 +5103,7 @@ size_t ACodec::countBuffersOwnedByComponent(OMX_U32 portIndex) const {
+     size_t n = 0;
+ 
+     for (size_t i = 0; i < mBuffers[portIndex].size(); ++i) {
+-        const BufferInfo &info = mBuffers[portIndex].itemAt(i);
++        const BufferInfo &info = mBuffers[portIndex][i];
+ 
+         if (info.mStatus == BufferInfo::OWNED_BY_COMPONENT) {
+             ++n;
+@@ -5116,7 +5117,7 @@ size_t ACodec::countBuffersOwnedByNativeWindow() const {
+     size_t n = 0;
+ 
+     for (size_t i = 0; i < mBuffers[kPortIndexOutput].size(); ++i) {
+-        const BufferInfo &info = mBuffers[kPortIndexOutput].itemAt(i);
++        const BufferInfo &info = mBuffers[kPortIndexOutput][i];
+ 
+         if (info.mStatus == BufferInfo::OWNED_BY_NATIVE_WINDOW) {
+             ++n;
+@@ -5143,7 +5144,7 @@ void ACodec::waitUntilAllPossibleNativeWindowBuffersAreReturnedToUs() {
+ bool ACodec::allYourBuffersAreBelongToUs(
+         OMX_U32 portIndex) {
+     for (size_t i = 0; i < mBuffers[portIndex].size(); ++i) {
+-        BufferInfo *info = &mBuffers[portIndex].editItemAt(i);
++        BufferInfo *info = &mBuffers[portIndex][i];
+ 
+         if (info->mStatus != BufferInfo::OWNED_BY_US
+                 && info->mStatus != BufferInfo::OWNED_BY_NATIVE_WINDOW) {
+@@ -6482,7 +6483,7 @@ void ACodec::BaseState::getMoreInputDataIfPossible() {
+     BufferInfo *eligible = NULL;
+ 
+     for (size_t i = 0; i < mCodec->mBuffers[kPortIndexInput].size(); ++i) {
+-        BufferInfo *info = &mCodec->mBuffers[kPortIndexInput].editItemAt(i);
++        BufferInfo *info = &mCodec->mBuffers[kPortIndexInput][i];
+ 
+ #if 0
+         if (info->mStatus == BufferInfo::OWNED_BY_UPSTREAM) {
+@@ -7514,7 +7515,7 @@ void ACodec::ExecutingState::submitOutputMetaBuffers() {
+     // submit as many buffers as there are input buffers with the codec
+     // in case we are in port reconfiguring
+     for (size_t i = 0; i < mCodec->mBuffers[kPortIndexInput].size(); ++i) {
+-        BufferInfo *info = &mCodec->mBuffers[kPortIndexInput].editItemAt(i);
++        BufferInfo *info = &mCodec->mBuffers[kPortIndexInput][i];
+ 
+         if (info->mStatus == BufferInfo::OWNED_BY_COMPONENT) {
+             if (mCodec->submitOutputMetadataBuffer() != OK)
+@@ -7532,7 +7533,7 @@ void ACodec::ExecutingState::submitOutputMetaBuffers() {
+ void ACodec::ExecutingState::submitRegularOutputBuffers() {
+     bool failed = false;
+     for (size_t i = 0; i < mCodec->mBuffers[kPortIndexOutput].size(); ++i) {
+-        BufferInfo *info = &mCodec->mBuffers[kPortIndexOutput].editItemAt(i);
++        BufferInfo *info = &mCodec->mBuffers[kPortIndexOutput][i];
+ 
+         if (mCodec->mNativeWindow != NULL) {
+             if (info->mStatus != BufferInfo::OWNED_BY_US
+@@ -7589,7 +7590,7 @@ void ACodec::ExecutingState::resume() {
+     }
+ 
+     for (size_t i = 0; i < mCodec->mBuffers[kPortIndexInput].size(); i++) {
+-        BufferInfo *info = &mCodec->mBuffers[kPortIndexInput].editItemAt(i);
++        BufferInfo *info = &mCodec->mBuffers[kPortIndexInput][i];
+         if (info->mStatus == BufferInfo::OWNED_BY_US) {
+             postFillThisBuffer(info);
+         }
+@@ -8593,7 +8594,7 @@ bool ACodec::OutputPortSettingsChangedState::onOMXEvent(
+                 ALOGV("[%s] Output port now disabled.", mCodec->mComponentName.c_str());
+ 
+                 status_t err = OK;
+-                if (!mCodec->mBuffers[kPortIndexOutput].isEmpty()) {
++                if (!mCodec->mBuffers[kPortIndexOutput].empty()) {
+                     ALOGE("disabled port should be empty, but has %zu buffers",
+                             mCodec->mBuffers[kPortIndexOutput].size());
+                     err = FAILED_TRANSACTION;
+diff --git a/media/libstagefright/include/media/stagefright/ACodec.h b/media/libstagefright/include/media/stagefright/ACodec.h
+index 777e2e6d28..38a4c1e96c 100644
+--- a/media/libstagefright/include/media/stagefright/ACodec.h
++++ b/media/libstagefright/include/media/stagefright/ACodec.h
+@@ -19,6 +19,7 @@
+ 
+ #include <stdint.h>
+ #include <list>
++#include <vector>
+ #include <android/native_window.h>
+ #include <media/hardware/MetadataBufferType.h>
+ #include <media/MediaCodecInfo.h>
+@@ -266,7 +267,7 @@ struct ACodec : public AHierarchicalStateMachine, public CodecBase {
+     sp<AMessage> mBaseOutputFormat;
+ 
+     FrameRenderTracker mRenderTracker; // render information for buffers rendered by ACodec
+-    Vector<BufferInfo> mBuffers[2];
++    std::vector<BufferInfo> mBuffers[2];
+     bool mPortEOS[2];
+     status_t mInputEOSResult;
+ 
+
+From ee40d86b851f98e3f4ec9ce6cc9a5deadb15d5ab Mon Sep 17 00:00:00 2001
+From: Wonsik Kim <wonsik@google.com>
+Date: Tue, 20 Sep 2022 11:00:42 -0700
+Subject: [PATCH 21/71] CCodec: fix wrapping logic
+
+C2PlaneInfo::maxOffset takes care of the allocated bit depth, so
+adding for the last byte is not needed.
+
+Bug: 246678061
+Test: presubmit
+Change-Id: I656d8e8555edae602ed8e344f0ce16f13f2fb858
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/codec2/sfplugin/Codec2Buffer.cpp | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/media/codec2/sfplugin/Codec2Buffer.cpp b/media/codec2/sfplugin/Codec2Buffer.cpp
+index cde4c72f07..318e110724 100644
+--- a/media/codec2/sfplugin/Codec2Buffer.cpp
++++ b/media/codec2/sfplugin/Codec2Buffer.cpp
+@@ -533,7 +533,7 @@ class GraphicView2MediaImageConverter {
+                         * align(mHeight, 64) / plane.rowSampling;
+             }
+ 
+-            if (minPtr == mView.data()[0] && (maxPtr - minPtr + 1) <= planeSize) {
++            if (minPtr == mView.data()[0] && (maxPtr - minPtr) <= planeSize) {
+                 // FIXME: this is risky as reading/writing data out of bound results
+                 //        in an undefined behavior, but gralloc does assume a
+                 //        contiguous mapping
+@@ -545,8 +545,7 @@ class GraphicView2MediaImageConverter {
+                     mediaImage->mPlane[i].mHorizSubsampling = plane.colSampling;
+                     mediaImage->mPlane[i].mVertSubsampling = plane.rowSampling;
+                 }
+-                mWrapped = new ABuffer(const_cast<uint8_t *>(minPtr),
+-                                       maxPtr - minPtr + 1);
++                mWrapped = new ABuffer(const_cast<uint8_t *>(minPtr), maxPtr - minPtr);
+                 ALOGV("Converter: wrapped (capacity=%zu)", mWrapped->capacity());
+             }
+         }
+
+From c9c2710fe8ba86825e7e36dcb0f8d7811e10b89f Mon Sep 17 00:00:00 2001
+From: Manisha Jajoo <manisha.jajoo@ittiam.com>
+Date: Fri, 12 Nov 2021 18:57:28 +0530
+Subject: [PATCH 22/71] C2SoftVpxEnc: add support for levels upto 4.1
+
+This patch also changes default dimensions and frame rate
+In order to support signalling lower levels, default dimensions
+and frame rate are set to smaller values, such that minimum level
+calculations done with default values still stay at lowest level
+supported
+
+Bug: 151430764
+
+Test: Uncomment the parameter for VP9 in the CTS test
+Test: atest android.mediav2.cts.EncoderProfileLevelTest
+
+Change-Id: Ie0edc2276ce123cfbcba3bf02b1aaedf5d630370
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/codec2/components/vpx/C2SoftVpxEnc.cpp | 94 ++++++++++++++++++--
+ media/codec2/components/vpx/C2SoftVpxEnc.h   |  7 +-
+ 2 files changed, 90 insertions(+), 11 deletions(-)
+
+diff --git a/media/codec2/components/vpx/C2SoftVpxEnc.cpp b/media/codec2/components/vpx/C2SoftVpxEnc.cpp
+index 2efc00f181..2a019d4c6f 100644
+--- a/media/codec2/components/vpx/C2SoftVpxEnc.cpp
++++ b/media/codec2/components/vpx/C2SoftVpxEnc.cpp
+@@ -59,7 +59,7 @@ C2SoftVpxEnc::IntfImpl::IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helpe
+ 
+     addParameter(
+         DefineParam(mSize, C2_PARAMKEY_PICTURE_SIZE)
+-            .withDefault(new C2StreamPictureSizeInfo::input(0u, 320, 240))
++            .withDefault(new C2StreamPictureSizeInfo::input(0u, 64, 64))
+             .withFields({
+                 C2F(mSize, width).inRange(2, 2048, 2),
+                 C2F(mSize, height).inRange(2, 2048, 2),
+@@ -81,7 +81,7 @@ C2SoftVpxEnc::IntfImpl::IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helpe
+ 
+     addParameter(
+         DefineParam(mFrameRate, C2_PARAMKEY_FRAME_RATE)
+-            .withDefault(new C2StreamFrameRateInfo::output(0u, 30.))
++            .withDefault(new C2StreamFrameRateInfo::output(0u, 1.))
+             // TODO: More restriction?
+             .withFields({C2F(mFrameRate, value).greaterThan(0.)})
+             .withSetter(
+@@ -127,10 +127,18 @@ C2SoftVpxEnc::IntfImpl::IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helpe
+                 C2F(mProfileLevel, profile).equalTo(
+                     PROFILE_VP9_0
+                 ),
+-                C2F(mProfileLevel, level).equalTo(
+-                    LEVEL_VP9_4_1),
++                C2F(mProfileLevel, level).oneOf({
++                        C2Config::LEVEL_VP9_1,
++                        C2Config::LEVEL_VP9_1_1,
++                        C2Config::LEVEL_VP9_2,
++                        C2Config::LEVEL_VP9_2_1,
++                        C2Config::LEVEL_VP9_3,
++                        C2Config::LEVEL_VP9_3_1,
++                        C2Config::LEVEL_VP9_4,
++                        C2Config::LEVEL_VP9_4_1,
++                }),
+             })
+-            .withSetter(ProfileLevelSetter)
++            .withSetter(ProfileLevelSetter, mSize, mFrameRate, mBitrate)
+             .build());
+ #else
+     addParameter(
+@@ -144,7 +152,7 @@ C2SoftVpxEnc::IntfImpl::IntfImpl(const std::shared_ptr<C2ReflectorHelper> &helpe
+                 C2F(mProfileLevel, level).equalTo(
+                     LEVEL_UNUSED),
+             })
+-            .withSetter(ProfileLevelSetter)
++            .withSetter(ProfileLevelSetter, mSize, mFrameRate, mBitrate)
+             .build());
+ #endif
+     addParameter(
+@@ -217,14 +225,84 @@ C2R C2SoftVpxEnc::IntfImpl::SizeSetter(bool mayBlock,
+ }
+ 
+ C2R C2SoftVpxEnc::IntfImpl::ProfileLevelSetter(bool mayBlock,
+-                                               C2P<C2StreamProfileLevelInfo::output>& me) {
++                                               C2P<C2StreamProfileLevelInfo::output>& me,
++                                               const C2P<C2StreamPictureSizeInfo::input>& size,
++                                               const C2P<C2StreamFrameRateInfo::output>& frameRate,
++                                               const C2P<C2StreamBitrateInfo::output>& bitrate) {
+     (void)mayBlock;
++#ifdef VP9
+     if (!me.F(me.v.profile).supportsAtAll(me.v.profile)) {
+         me.set().profile = PROFILE_VP9_0;
+     }
+-    if (!me.F(me.v.level).supportsAtAll(me.v.level)) {
++    struct LevelLimits {
++        C2Config::level_t level;
++        float samplesPerSec;
++        uint64_t samples;
++        uint32_t bitrate;
++        size_t dimension;
++    };
++    constexpr LevelLimits kLimits[] = {
++            {LEVEL_VP9_1, 829440, 36864, 200000, 512},
++            {LEVEL_VP9_1_1, 2764800, 73728, 800000, 768},
++            {LEVEL_VP9_2, 4608000, 122880, 1800000, 960},
++            {LEVEL_VP9_2_1, 9216000, 245760, 3600000, 1344},
++            {LEVEL_VP9_3, 20736000, 552960, 7200000, 2048},
++            {LEVEL_VP9_3_1, 36864000, 983040, 12000000, 2752},
++            {LEVEL_VP9_4, 83558400, 2228224, 18000000, 4160},
++            {LEVEL_VP9_4_1, 160432128, 2228224, 30000000, 4160},
++    };
++
++    uint64_t samples = size.v.width * size.v.height;
++    float samplesPerSec = float(samples) * frameRate.v.value;
++    size_t dimension = std::max(size.v.width, size.v.height);
++
++    // Check if the supplied level meets the samples / bitrate requirements.
++    // If not, update the level with the lowest level meeting the requirements.
++    bool found = false;
++
++    // By default needsUpdate = false in case the supplied level does meet
++    // the requirements.
++    bool needsUpdate = false;
++    for (const LevelLimits& limit : kLimits) {
++        if (samples > limit.samples) continue;
++        if (samplesPerSec > limit.samplesPerSec) continue;
++        if (bitrate.v.value > limit.bitrate) continue;
++        if (dimension > limit.dimension) continue;
++
++        // This is the lowest level that meets the requirements, and if
++        // we haven't seen the supplied level yet, that means we don't
++        // need the update.
++        if (needsUpdate) {
++            ALOGD("Given level %x does not cover current configuration: "
++                    "adjusting to %x",
++                    me.v.level, limit.level);
++            me.set().level = limit.level;
++        }
++        found = true;
++        break;
++
++        if (me.v.level == limit.level) {
++            // We break out of the loop when the lowest feasible level is
++            // found. The fact that we're here means that our level doesn't
++            // meet the requirement and needs to be updated.
++            needsUpdate = true;
++        }
++    }
++    if (!found) {
++        // We set to the highest supported level.
+         me.set().level = LEVEL_VP9_4_1;
+     }
++#else
++    (void)size;
++    (void)frameRate;
++    (void)bitrate;
++    if (!me.F(me.v.profile).supportsAtAll(me.v.profile)) {
++        me.set().profile = PROFILE_VP8_0;
++    }
++    if (!me.F(me.v.level).supportsAtAll(me.v.level)) {
++        me.set().level = LEVEL_UNUSED;
++    }
++#endif
+     return C2R::Ok();
+ }
+ 
+diff --git a/media/codec2/components/vpx/C2SoftVpxEnc.h b/media/codec2/components/vpx/C2SoftVpxEnc.h
+index 714fadb504..bfb4444e2a 100644
+--- a/media/codec2/components/vpx/C2SoftVpxEnc.h
++++ b/media/codec2/components/vpx/C2SoftVpxEnc.h
+@@ -243,9 +243,10 @@ class C2SoftVpxEnc::IntfImpl : public SimpleInterface<void>::BaseParams {
+     static C2R SizeSetter(bool mayBlock, const C2P<C2StreamPictureSizeInfo::input> &oldMe,
+                           C2P<C2StreamPictureSizeInfo::input> &me);
+ 
+-    static C2R ProfileLevelSetter(
+-            bool mayBlock,
+-            C2P<C2StreamProfileLevelInfo::output> &me);
++    static C2R ProfileLevelSetter(bool mayBlock, C2P<C2StreamProfileLevelInfo::output>& me,
++                                  const C2P<C2StreamPictureSizeInfo::input>& size,
++                                  const C2P<C2StreamFrameRateInfo::output>& frameRate,
++                                  const C2P<C2StreamBitrateInfo::output>& bitrate);
+ 
+     static C2R LayeringSetter(bool mayBlock, C2P<C2StreamTemporalLayeringTuning::output>& me);
+ 
+
+From ad2907c8a71631053f6feb4490c0b6a4c10f4a57 Mon Sep 17 00:00:00 2001
+From: liyong <liyong@allwinnertech.com>
+Date: Thu, 12 May 2022 10:55:03 +0800
+Subject: [PATCH 23/71] VolumeCurve file build fail
+
+Bug: 232287435
+Test: #define LOG_NDEBUG 0 and build
+
+Change-Id: I9de696361e13dae4b1421c26bd4048bf19deeba1
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ services/audiopolicy/engine/common/src/VolumeCurve.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/services/audiopolicy/engine/common/src/VolumeCurve.cpp b/services/audiopolicy/engine/common/src/VolumeCurve.cpp
+index 8aa4b082e9..fccbc601ac 100644
+--- a/services/audiopolicy/engine/common/src/VolumeCurve.cpp
++++ b/services/audiopolicy/engine/common/src/VolumeCurve.cpp
+@@ -52,7 +52,7 @@ float VolumeCurve::volIndexToDb(int indexInUi, int volIndexMin, int volIndexMax)
+             volIdx = volIndexMin;
+         } else {
+             // This would result in a divide-by-zero below
+-            ALOG_ASSERT(volIndexmin != volIndexMax, "Invalid volume index range & value: 0");
++            ALOG_ASSERT(volIndexMin != volIndexMax, "Invalid volume index range & value: 0");
+             return NAN;
+         }
+     } else {
+
+From 17edbd5c6d81631681d14fe59ba4b302b1d1ae0b Mon Sep 17 00:00:00 2001
+From: Harish Mahendrakar <harish.mahendrakar@ittiam.com>
+Date: Mon, 20 Dec 2021 21:34:12 -0800
+Subject: [PATCH 24/71] C2SoftGav1Dec: Update include paths
+
+Update include paths as external/libgav1/libgav1/* is now
+moved to external/libgav1/*
+
+Bug: 211157723
+Test: Builds
+
+Change-Id: I847aa466d03e4fc86f2da06636b1507aefb56627
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/codec2/components/gav1/C2SoftGav1Dec.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/media/codec2/components/gav1/C2SoftGav1Dec.h b/media/codec2/components/gav1/C2SoftGav1Dec.h
+index 3d4db550de..4beb82a81b 100644
+--- a/media/codec2/components/gav1/C2SoftGav1Dec.h
++++ b/media/codec2/components/gav1/C2SoftGav1Dec.h
+@@ -23,8 +23,8 @@
+ 
+ #include <SimpleC2Component.h>
+ #include <C2Config.h>
+-#include "libgav1/src/gav1/decoder.h"
+-#include "libgav1/src/gav1/decoder_settings.h"
++#include <gav1/decoder.h>
++#include <gav1/decoder_settings.h>
+ 
+ namespace android {
+ 
+
+From da1517f3bf954c3b5019e67b64b8210eb631139d Mon Sep 17 00:00:00 2001
+From: Emilian Peev <epeev@google.com>
+Date: Mon, 19 Sep 2022 15:55:52 -0700
+Subject: [PATCH 25/71] camera2 vndk: Improve error handling
+
+Check for binder status when removing the camera
+service listener.
+Additionally check for any invalid extended availability
+callbacks.
+
+Bug: 247615866
+Test: adb shell
+/data/nativetest64/vendor/ACameraNdkVendorTest/ACameraNdkVendorTest
+
+Change-Id: Ia043934288d8c5e5584034a08de24c998468039d
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ camera/ndk/ndk_vendor/impl/ACameraManager.cpp | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/camera/ndk/ndk_vendor/impl/ACameraManager.cpp b/camera/ndk/ndk_vendor/impl/ACameraManager.cpp
+index 77c934abbe..bb4ef5634a 100644
+--- a/camera/ndk/ndk_vendor/impl/ACameraManager.cpp
++++ b/camera/ndk/ndk_vendor/impl/ACameraManager.cpp
+@@ -165,7 +165,10 @@ CameraManagerGlobal::~CameraManagerGlobal() {
+     Mutex::Autolock _l(mLock);
+     if (mCameraService != nullptr) {
+         mCameraService->unlinkToDeath(mDeathNotifier);
+-        mCameraService->removeListener(mCameraServiceListener);
++        auto stat = mCameraService->removeListener(mCameraServiceListener);
++        if (!stat.isOk()) {
++            ALOGE("Failed to remove listener to camera service %s", stat.description().c_str());
++        }
+     }
+     mDeathNotifier.clear();
+     if (mCbLooper != nullptr) {
+@@ -475,6 +478,10 @@ void CameraManagerGlobal::CallbackHandler::onMessageReceivedInternal(
+                 ALOGE("%s: Cannot find camera callback fp!", __FUNCTION__);
+                 return;
+             }
++            if (cb == nullptr) {
++                // Physical camera callback is null
++                return;
++            }
+             found = msg->findPointer(kContextKey, &context);
+             if (!found) {
+                 ALOGE("%s: Cannot find callback context!", __FUNCTION__);
+
+From 64636a1a307ad310a6a1cf3c690175df7c34533d Mon Sep 17 00:00:00 2001
+From: Paul Keith <javelinanddart@gmail.com>
+Date: Fri, 6 May 2022 10:41:52 +0530
+Subject: [PATCH 26/71] libstagefright: omx: Add support for loading prebuilt
+ ddp and ac4 decoder lib
+
+[HELLBOY017]: Also allow to load dolby codec in MediaCodecList
+
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/libstagefright/MediaCodecList.cpp    | 1 +
+ media/libstagefright/omx/SoftOMXPlugin.cpp | 4 ++++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/media/libstagefright/MediaCodecList.cpp b/media/libstagefright/MediaCodecList.cpp
+index a3040f4f7d..afd5c608a4 100644
+--- a/media/libstagefright/MediaCodecList.cpp
++++ b/media/libstagefright/MediaCodecList.cpp
+@@ -318,6 +318,7 @@ const sp<AMessage> MediaCodecList::getGlobalSettings() const {
+ //static
+ bool MediaCodecList::isSoftwareCodec(const AString &componentName) {
+     return componentName.startsWithIgnoreCase("OMX.google.")
++            || componentName.startsWithIgnoreCase("OMX.dolby.")
+             || componentName.startsWithIgnoreCase("c2.android.")
+             || (!componentName.startsWithIgnoreCase("OMX.")
+                     && !componentName.startsWithIgnoreCase("c2."));
+diff --git a/media/libstagefright/omx/SoftOMXPlugin.cpp b/media/libstagefright/omx/SoftOMXPlugin.cpp
+index 8c186c90f8..25b36cb7b6 100644
+--- a/media/libstagefright/omx/SoftOMXPlugin.cpp
++++ b/media/libstagefright/omx/SoftOMXPlugin.cpp
+@@ -61,6 +61,10 @@ static const struct {
+     { "OMX.google.flac.decoder", "flacdec", "audio_decoder.flac" },
+     { "OMX.google.flac.encoder", "flacenc", "audio_encoder.flac" },
+     { "OMX.google.gsm.decoder", "gsmdec", "audio_decoder.gsm" },
++    { "OMX.dolby.ac3.decoder", "ddpdec", "audio_decoder.ac3" },
++    { "OMX.dolby.eac3-joc.decoder", "ddpdec", "audio_decoder.eac3_joc" },
++    { "OMX.dolby.eac3.decoder", "ddpdec", "audio_decoder.eac3" },
++    { "OMX.dolby.ac4.decoder", "ac4dec", "audio_decoder.ac4" },
+ };
+ 
+ static const size_t kNumComponents =
+
+From bfd8a748ad5212344588b33d400b7290688bd7fa Mon Sep 17 00:00:00 2001
+From: Shrikara B <quic_shrikara@quicinc.com>
+Date: Fri, 26 Aug 2022 14:18:14 +0530
+Subject: [PATCH 27/71] CCodec: Update watchdog to handle timeouts accurately
+
+Update initiateReleaseIfStuck function to decide timeout just before
+calling onError.
+This avoids some cases where an event (e.g., configure)
+is decided as timed out by this thread immediately after function
+entry. But when the thread is waiting for mConfig lock, configure
+function actually returns successfully, which moves the MediaCodec
+to valid CONFIGURED state. But since the watchdog thread has
+already decided that configure function has timed out, it calls
+onError callback to MediaCodec. This moves the MediaCodec state
+to UNINTIALIZED after the configure function was successful.
+This chain of events creates problem when clients like nuplayer
+tries to perform some action on MediaCodec after configure was
+successful (but MediaCodec is nor in CONFIGURED state, due to
+above onError callback).
+
+So, watchdog thread should check for function timeout just before
+calling onError callback to avoid such race conditions.
+
+CRs-Fixed:3273495
+Change-Id: I6a7d250c7475cb40d25775bfc56ff6c13239afb8
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/codec2/sfplugin/CCodec.cpp | 22 +++++++++++-----------
+ 1 file changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/media/codec2/sfplugin/CCodec.cpp b/media/codec2/sfplugin/CCodec.cpp
+index a11d7893c6..438f2df840 100644
+--- a/media/codec2/sfplugin/CCodec.cpp
++++ b/media/codec2/sfplugin/CCodec.cpp
+@@ -2540,17 +2540,6 @@ status_t CCodec::configureTunneledVideoPlayback(
+ }
+ 
+ void CCodec::initiateReleaseIfStuck() {
+-    std::string name;
+-    bool pendingDeadline = false;
+-    {
+-        Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
+-        if (deadline->get() < std::chrono::steady_clock::now()) {
+-            name = deadline->getName();
+-        }
+-        if (deadline->get() != TimePoint::max()) {
+-            pendingDeadline = true;
+-        }
+-    }
+     bool tunneled = false;
+     bool isMediaTypeKnown = false;
+     {
+@@ -2588,6 +2577,17 @@ void CCodec::initiateReleaseIfStuck() {
+         tunneled = config->mTunneled;
+         isMediaTypeKnown = (kKnownMediaTypes.count(config->mCodingMediaType) != 0);
+     }
++    std::string name;
++    bool pendingDeadline = false;
++    {
++        Mutexed<NamedTimePoint>::Locked deadline(mDeadline);
++        if (deadline->get() < std::chrono::steady_clock::now()) {
++            name = deadline->getName();
++        }
++        if (deadline->get() != TimePoint::max()) {
++            pendingDeadline = true;
++        }
++    }
+     if (!tunneled && isMediaTypeKnown && name.empty()) {
+         constexpr std::chrono::steady_clock::duration kWorkDurationThreshold = 3s;
+         std::chrono::steady_clock::duration elapsed = mChannel->elapsed();
+
+From 1827ffb33b22f4150d0b6bbe5ed7460cf844bfd6 Mon Sep 17 00:00:00 2001
+From: Venugopal Nadipalli <quic_vnadipal@quicinc.com>
+Date: Tue, 26 Jul 2022 12:05:31 +0530
+Subject: [PATCH 28/71] Camera: Removing cachedump call to miminimize delay
+ during close.
+
+- The cacheDump() call was added for better debugging by always
+  dumping the state of the last camera session. Since LT/VT chipsets
+  it is adding significant delay during camera close. Hence we are
+  removing cachedump call during disconnect.
+  https://partnerissuetracker.corp.google.com/issues/237992867
+
+CRs-Fixed: 3228616
+Change-Id: Ibba2a51f08c592bf15b046642101e11d890ed248
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../camera/libcameraservice/common/Camera2ClientBase.cpp  | 8 --------
+ 1 file changed, 8 deletions(-)
+
+diff --git a/services/camera/libcameraservice/common/Camera2ClientBase.cpp b/services/camera/libcameraservice/common/Camera2ClientBase.cpp
+index dc5002bffa..802cba56cf 100644
+--- a/services/camera/libcameraservice/common/Camera2ClientBase.cpp
++++ b/services/camera/libcameraservice/common/Camera2ClientBase.cpp
+@@ -254,14 +254,6 @@ binder::Status Camera2ClientBase<TClientBase>::disconnect() {
+ 
+     ALOGD("Camera %s: Shutting down", TClientBase::mCameraIdStr.string());
+ 
+-    // Before detaching the device, cache the info from current open session.
+-    // The disconnected check avoids duplication of info and also prevents
+-    // deadlock while acquiring service lock in cacheDump.
+-    if (!TClientBase::mDisconnected) {
+-        ALOGD("Camera %s: start to cacheDump", TClientBase::mCameraIdStr.string());
+-        Camera2ClientBase::getCameraService()->cacheDump();
+-    }
+-
+     detachDevice();
+ 
+     CameraService::BasicClient::disconnect();
+
+From 9aaba8035b58798c14bd5192a61ae4e4aae08098 Mon Sep 17 00:00:00 2001
+From: Emilian Peev <epeev@google.com>
+Date: Thu, 11 Aug 2022 11:01:22 -0700
+Subject: [PATCH 29/71] Camera: Avoid unnecessary close of buffer release fence
+ fds
+
+According to the native window documentation:
+The caller must not use the fence file descriptor after it is
+passed to cancelBuffer/queueBuffer, and the ANativeWindow
+implementation is responsible for closing it.
+
+CRs-Fixed: 3258309
+Bug: 241354093
+Test: Manual using camera application
+Change-Id: Ie85114666e36bb1a598859462ccd3ab0709d247a
+Signed-off-by: Emilian Peev <epeev@google.com>
+(cherry picked from commit a9e79a02bb4953becec980f4f1b79e8ae7add253)
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../camera/libcameraservice/device3/Camera3OutputStream.cpp   | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/services/camera/libcameraservice/device3/Camera3OutputStream.cpp b/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
+index 1e20ee0eb8..68d5272ee6 100644
+--- a/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
++++ b/services/camera/libcameraservice/device3/Camera3OutputStream.cpp
+@@ -501,10 +501,6 @@ status_t Camera3OutputStream::returnBufferCheckedLocked(
+         mStreamUnpreparable = true;
+     }
+ 
+-    if (res != OK) {
+-        close(anwReleaseFence);
+-    }
+-
+     *releaseFenceOut = releaseFence;
+ 
+     return res;
+
+From ad21232f7d0186d15b0e1af7390aa36fe133f14b Mon Sep 17 00:00:00 2001
+From: Eric Laurent <elaurent@google.com>
+Date: Mon, 4 Jul 2022 15:11:29 +0200
+Subject: [PATCH 30/71] audio policy service: fix spatializer locking scheme
+
+The audio policy service should never call Spatializer controller
+methods with its mutex held. This rule was only partly repected.
+This CL fixes the remaining call sites.
+
+CRs-Fixed: 3226388
+Bug: 237833275
+Test: repro steps in the bug.
+Change-Id: I2a1828d9e4cd3e16a68c727ae84329c92666c6ab
+(cherry picked from commit 21270b6762d76d138aefb59146bbc1fec747665f)
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../service/AudioPolicyService.cpp            | 29 ++++++++-----------
+ .../audiopolicy/service/AudioPolicyService.h  |  1 +
+ 2 files changed, 13 insertions(+), 17 deletions(-)
+
+diff --git a/services/audiopolicy/service/AudioPolicyService.cpp b/services/audiopolicy/service/AudioPolicyService.cpp
+index e7d945fad6..691f13cda8 100644
+--- a/services/audiopolicy/service/AudioPolicyService.cpp
++++ b/services/audiopolicy/service/AudioPolicyService.cpp
+@@ -516,8 +516,6 @@ void AudioPolicyService::onCheckSpatializer_l()
+ 
+ void AudioPolicyService::doOnCheckSpatializer()
+ {
+-    Mutex::Autolock _l(mLock);
+-
+     ALOGI("%s mSpatializer %p level %d", __func__, mSpatializer.get(), (int)mSpatializer->getLevel());
+ 
+     if (mSpatializer != nullptr) {
+@@ -527,6 +525,8 @@ void AudioPolicyService::doOnCheckSpatializer()
+             audio_io_handle_t newOutput;
+             const audio_attributes_t attr = attributes_initializer(AUDIO_USAGE_MEDIA);
+             audio_config_base_t config = mSpatializer->getAudioInConfig();
++
++            Mutex::Autolock _l(mLock);
+             status_t status =
+                     mAudioPolicyManager->getSpatializerOutput(&config, &attr, &newOutput);
+             ALOGV("%s currentOutput %d newOutput %d channel_mask %#x",
+@@ -538,21 +538,19 @@ void AudioPolicyService::doOnCheckSpatializer()
+             mLock.unlock();
+             // It is OK to call detachOutput() is none is already attached.
+             mSpatializer->detachOutput();
+-            if (status != NO_ERROR || newOutput == AUDIO_IO_HANDLE_NONE) {
+-                mLock.lock();
+-                return;
++            if (status == NO_ERROR && newOutput != AUDIO_IO_HANDLE_NONE) {
++                status = mSpatializer->attachOutput(newOutput, numActiveTracks);
+             }
+-            status = mSpatializer->attachOutput(newOutput, numActiveTracks);
+             mLock.lock();
+             if (status != NO_ERROR) {
+                 mAudioPolicyManager->releaseSpatializerOutput(newOutput);
+             }
+         } else if (mSpatializer->getLevel() == media::SpatializationLevel::NONE
+                                && mSpatializer->getOutput() != AUDIO_IO_HANDLE_NONE) {
+-            mLock.unlock();
+             audio_io_handle_t output = mSpatializer->detachOutput();
+-            mLock.lock();
++
+             if (output != AUDIO_IO_HANDLE_NONE) {
++                Mutex::Autolock _l(mLock);
+                 mAudioPolicyManager->releaseSpatializerOutput(output);
+             }
+         }
+@@ -581,19 +579,16 @@ void AudioPolicyService::onUpdateActiveSpatializerTracks_l() {
+ 
+ void AudioPolicyService::doOnUpdateActiveSpatializerTracks()
+ {
+-    sp<Spatializer> spatializer;
++    if (mSpatializer == nullptr) {
++        return;
++    }
++    audio_io_handle_t output = mSpatializer->getOutput();
+     size_t activeClients;
+     {
+         Mutex::Autolock _l(mLock);
+-        if (mSpatializer == nullptr) {
+-            return;
+-        }
+-        spatializer = mSpatializer;
+-        activeClients = countActiveClientsOnOutput_l(mSpatializer->getOutput());
+-    }
+-    if (spatializer != nullptr) {
+-        spatializer->updateActiveTracks(activeClients);
++        activeClients = countActiveClientsOnOutput_l(output);
+     }
++    mSpatializer->updateActiveTracks(activeClients);
+ }
+ 
+ status_t AudioPolicyService::clientCreateAudioPatch(const struct audio_patch *patch,
+diff --git a/services/audiopolicy/service/AudioPolicyService.h b/services/audiopolicy/service/AudioPolicyService.h
+index 3a08cf8f71..a87d871d7b 100644
+--- a/services/audiopolicy/service/AudioPolicyService.h
++++ b/services/audiopolicy/service/AudioPolicyService.h
+@@ -1060,6 +1060,7 @@ class AudioPolicyService :
+ 
+     CaptureStateNotifier mCaptureStateNotifier;
+ 
++    // created in onFirstRef() and never cleared: does not need to be guarded by mLock
+     sp<Spatializer> mSpatializer;
+ 
+     void *mLibraryHandle = nullptr;
+
+From 54bc852fa2a71ffe521f7f38d984cdfe236dcf0c Mon Sep 17 00:00:00 2001
+From: Malathi Gottam <quic_mgottam@quicinc.com>
+Date: Tue, 12 Jul 2022 18:28:32 +0530
+Subject: [PATCH 31/71] sfplugin: do not fail resume call if inputs slots are
+ active
+
+On signalling resume, initial input buffers are requested, but
+there is a chance that i/p buffers might already be available
+to client or with component, skip resume call failure in such
+scenarios.
+
+CRs-Fixed: 3249812
+Change-Id: Ic23d1b26da900c6089905747e5f5364ed0482fb4
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/codec2/sfplugin/CCodec.cpp              | 5 ++++-
+ media/codec2/sfplugin/CCodecBufferChannel.cpp | 7 +++++++
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/media/codec2/sfplugin/CCodec.cpp b/media/codec2/sfplugin/CCodec.cpp
+index 438f2df840..0d5231ec7f 100644
+--- a/media/codec2/sfplugin/CCodec.cpp
++++ b/media/codec2/sfplugin/CCodec.cpp
+@@ -2139,7 +2139,10 @@ void CCodec::signalResume() {
+     std::map<size_t, sp<MediaCodecBuffer>> clientInputBuffers;
+     status_t err = mChannel->prepareInitialInputBuffers(&clientInputBuffers);
+     if (err != OK) {
+-        ALOGE("Resume request for Input Buffers failed");
++        if (err == WOULD_BLOCK) {
++            return;
++        }
++        ALOGW("Resume request for Input Buffers failed");
+         mCallback->onError(err, ACTION_CODE_FATAL);
+         return;
+     }
+diff --git a/media/codec2/sfplugin/CCodecBufferChannel.cpp b/media/codec2/sfplugin/CCodecBufferChannel.cpp
+index e061da3b55..49e5b2a61a 100644
+--- a/media/codec2/sfplugin/CCodecBufferChannel.cpp
++++ b/media/codec2/sfplugin/CCodecBufferChannel.cpp
+@@ -1488,6 +1488,7 @@ status_t CCodecBufferChannel::prepareInitialInputBuffers(
+     }
+ 
+     size_t numInputSlots = mInput.lock()->numSlots;
++    size_t numActiveSlots = 0;
+ 
+     {
+         Mutexed<Input>::Locked input(mInput);
+@@ -1499,8 +1500,14 @@ status_t CCodecBufferChannel::prepareInitialInputBuffers(
+             }
+             clientInputBuffers->emplace(index, buffer);
+         }
++        numActiveSlots = input->buffers->numActiveSlots();
+     }
+     if (clientInputBuffers->empty()) {
++        if (numActiveSlots > 0) {
++           ALOGW("[%s] all ip slots either owned by client or with component", mName);
++           return WOULD_BLOCK;
++        }
++
+         ALOGW("[%s] start: cannot allocate memory at all", mName);
+         return NO_MEMORY;
+     } else if (clientInputBuffers->size() < numInputSlots) {
+
+From b761663a44d3b55638387acf940009ec5b7a026e Mon Sep 17 00:00:00 2001
+From: Eric Laurent <elaurent@google.com>
+Date: Fri, 24 Jun 2022 14:32:36 +0200
+Subject: [PATCH 32/71] audio policy: fix canBeSpatialized()
+
+Allow to create a Spatializer controller even if the spatializer
+output profile can only be routed to devices not connected at boot time.
+Done by fixing AudioPolicyManager::getSpatializerOutputProfile() to
+only consider available devices if a specific device list is passed as
+argument.
+
+CRs-Fixed: 3247644
+Bug: 234049185
+Test: spatial audio playback on Bluetooth
+Change-Id: I34a8b1e2a2344f9f5ac5b637d9d344a29537fe33
+(cherry picked from commit 0c8f7cc6ecce7e64a96fa489399e6d4ae2593afb)
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../managerdefault/AudioPolicyManager.cpp          | 14 +++++---------
+ .../managerdefault/AudioPolicyManager.h            | 12 ++++++++++++
+ 2 files changed, 17 insertions(+), 9 deletions(-)
+
+diff --git a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+index 54eb1b74fa..6cdcde4d8e 100644
+--- a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
++++ b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+@@ -1054,12 +1054,12 @@ sp<IOProfile> AudioPolicyManager::getSpatializerOutputProfile(
+             if (curProfile->getFlags() != AUDIO_OUTPUT_FLAG_SPATIALIZER) {
+                 continue;
+             }
+-            // reject profiles not corresponding to a device currently available
+-            DeviceVector supportedDevices = curProfile->getSupportedDevices();
+-            if (!mAvailableOutputDevices.containsAtLeastOne(supportedDevices)) {
+-                continue;
+-            }
+             if (!devices.empty()) {
++                // reject profiles not corresponding to a device currently available
++                DeviceVector supportedDevices = curProfile->getSupportedDevices();
++                if (!mAvailableOutputDevices.containsAtLeastOne(supportedDevices)) {
++                    continue;
++                }
+                 if (supportedDevices.getDevicesFromDeviceTypeAddrVec(devices).size()
+                         != devices.size()) {
+                     continue;
+@@ -5357,10 +5357,6 @@ bool AudioPolicyManager::canBeSpatializedInt(const audio_attributes_t *attr,
+         }
+     }
+ 
+-    // The caller can have the devices criteria ignored by passing and empty vector, and
+-    // getSpatializerOutputProfile() will ignore the devices when looking for a match.
+-    // Otherwise an output profile supporting a spatializer effect that can be routed
+-    // to the specified devices must exist.
+     sp<IOProfile> profile =
+             getSpatializerOutputProfile(config, devices);
+     if (profile == nullptr) {
+diff --git a/services/audiopolicy/managerdefault/AudioPolicyManager.h b/services/audiopolicy/managerdefault/AudioPolicyManager.h
+index db0ee15de8..87e6974894 100644
+--- a/services/audiopolicy/managerdefault/AudioPolicyManager.h
++++ b/services/audiopolicy/managerdefault/AudioPolicyManager.h
+@@ -1099,6 +1099,18 @@ class AudioPolicyManager : public AudioPolicyInterface, public AudioPolicyManage
+                                       const audio_config_t *config,
+                                       const AudioDeviceTypeAddrVector &devices) const;
+ 
++
++        /**
++         * @brief Gets an IOProfile for a spatializer output with the best match with
++         * provided arguments.
++         * The caller can have the devices criteria ignored by passing and empty vector, and
++         * getSpatializerOutputProfile() will ignore the devices when looking for a match.
++         * Otherwise an output profile supporting a spatializer effect that can be routed
++         * to the specified devices must exist.
++         * @param config audio configuration describing the audio format, channels, sample rate...
++         * @param devices the sink audio device selected for playback
++         * @return an IOProfile that canbe used to open a spatializer output.
++         */
+         sp<IOProfile> getSpatializerOutputProfile(const audio_config_t *config,
+                                                   const AudioDeviceTypeAddrVector &devices) const;
+ 
+
+From 68fe4fe0a08de838a3528e3a8442466c9beac4a1 Mon Sep 17 00:00:00 2001
+From: Jayant Chowdhary <jchowdhary@google.com>
+Date: Wed, 20 Jul 2022 17:09:48 -0700
+Subject: [PATCH 33/71] cameraserver: Fix floating point truncation for
+ getUHRMaxJpegBufferSize
+
+Bug: 238103879
+
+Test: Vendor testing
+Test: DngCreatorTest.java on cuttlefish
+CRs-Fixed: 3213992
+Change-Id: I6553ed5f4b617e70516cfaac3c248da3176912da
+Signed-off-by: Jayant Chowdhary <jchowdhary@google.com>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../camera/libcameraservice/utils/SessionConfigurationUtils.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp b/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp
+index 2eb2d55e10..874718bb9f 100644
+--- a/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp
++++ b/services/camera/libcameraservice/utils/SessionConfigurationUtils.cpp
+@@ -127,7 +127,7 @@ camera3::Size getMaxJpegResolution(const CameraMetadata &metadata,
+ 
+ size_t getUHRMaxJpegBufferSize(camera3::Size uhrMaxJpegSize,
+         camera3::Size defaultMaxJpegSize, size_t defaultMaxJpegBufferSize) {
+-    return (uhrMaxJpegSize.width * uhrMaxJpegSize.height) /
++    return ((float)(uhrMaxJpegSize.width * uhrMaxJpegSize.height)) /
+             (defaultMaxJpegSize.width * defaultMaxJpegSize.height) * defaultMaxJpegBufferSize;
+ }
+ 
+
+From 5bbec96b047d9f9e904de8bc52abe1d1afa5d1e4 Mon Sep 17 00:00:00 2001
+From: Ayushi Khopkar <ayushi.khopkar@ittiam.com>
+Date: Fri, 6 Aug 2021 16:01:20 +0530
+Subject: [PATCH 34/71] Bug fix for
+ libmediautils_fuzzer_scheduling_policy_service
+
+Test: ./libmediautils_fuzzer_scheduling_policy_service clusterfuzz-testcase-minimized-libmediautils_fuzzer_scheduling_policy_service-5735758790524928
+Bug: 194773741
+
+Change-Id: I167e2224bdd5d0792fce493fc1554e7be7ff5519
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/utils/fuzzers/SchedulingPolicyServiceFuzz.cpp | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/media/utils/fuzzers/SchedulingPolicyServiceFuzz.cpp b/media/utils/fuzzers/SchedulingPolicyServiceFuzz.cpp
+index 130feee34b..32fc3be168 100644
+--- a/media/utils/fuzzers/SchedulingPolicyServiceFuzz.cpp
++++ b/media/utils/fuzzers/SchedulingPolicyServiceFuzz.cpp
+@@ -34,11 +34,16 @@ sp<IBatteryStats> getBatteryService() {
+     const sp<IServiceManager> sm(defaultServiceManager());
+     if (sm != nullptr) {
+         const String16 name("batterystats");
+-        batteryStatService = checked_interface_cast<IBatteryStats>(sm->checkService(name));
+-        if (batteryStatService == nullptr) {
++        sp<IBinder> obj = sm->checkService(name);
++        if (!obj) {
+             ALOGW("batterystats service unavailable!");
+             return nullptr;
+         }
++        batteryStatService = checked_interface_cast<IBatteryStats>(obj);
++        if (batteryStatService == nullptr) {
++            ALOGW("batterystats service interface is invalid");
++            return nullptr;
++        }
+     }
+     return batteryStatService;
+ }
+
+From b9b05c27e5aa4955b9509eac9c19db9a3ce65bd7 Mon Sep 17 00:00:00 2001
+From: Manisha Jajoo <manisha.jajoo@ittiam.com>
+Date: Fri, 13 May 2022 21:00:32 +0530
+Subject: [PATCH 35/71] Mpeg4Extractor: Fix flac parsing in mp4
+
+Flac in mp4 can have multiple metadata tags.
+Added handling for the same.
+
+Bug: 227296847
+Test: stagefright -ao flac.mp4
+Test: atest ExtractorUnitTest -- --enable-module-dynamic-download=true
+Test: atest android.mediav2.cts
+
+Change-Id: I3b8c4d374073c5dfd32f5f1b15d162103a7d6f5c
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/extractors/mp4/MPEG4Extractor.cpp | 49 +++++++++++++++----------
+ 1 file changed, 30 insertions(+), 19 deletions(-)
+
+diff --git a/media/extractors/mp4/MPEG4Extractor.cpp b/media/extractors/mp4/MPEG4Extractor.cpp
+index 7f97ddc9fe..5a039928e4 100644
+--- a/media/extractors/mp4/MPEG4Extractor.cpp
++++ b/media/extractors/mp4/MPEG4Extractor.cpp
+@@ -1969,26 +1969,8 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
+             }
+ 
+             if (chunk_type == FOURCC("fLaC")) {
+-
+-                // From https://github.com/xiph/flac/blob/master/doc/isoflac.txt
+-                // 4 for mime, 4 for blockType and BlockLen, 34 for metadata
+-                uint8_t flacInfo[4 + 4 + 34];
+-                // skipping dFla, version
+-                data_offset += sizeof(buffer) + 12;
+-                size_t flacOffset = 4;
+-                // Add flaC header mime type to CSD
+-                strncpy((char *)flacInfo, "fLaC", 4);
+-                if (mDataSource->readAt(
+-                        data_offset, flacInfo + flacOffset, sizeof(flacInfo) - flacOffset) <
+-                        (ssize_t)sizeof(flacInfo) - flacOffset) {
+-                    return ERROR_IO;
+-                }
+-                data_offset += sizeof(flacInfo) - flacOffset;
+-
+-                AMediaFormat_setBuffer(mLastTrack->meta, AMEDIAFORMAT_KEY_CSD_0, flacInfo,
+-                                       sizeof(flacInfo));
++                data_offset += sizeof(buffer);
+                 *offset = data_offset;
+-                CHECK_EQ(*offset, stop_offset);
+             }
+ 
+             while (*offset < stop_offset) {
+@@ -2521,6 +2503,35 @@ status_t MPEG4Extractor::parseChunk(off64_t *offset, int depth) {
+             break;
+         }
+ 
++        case FOURCC("dfLa"):
++        {
++            *offset += chunk_size;
++
++            // From https://github.com/xiph/flac/blob/master/doc/isoflac.txt
++            // 4 for mediaType, 4 for blockType and BlockLen, 34 for metadata
++            uint8_t flacInfo[4 + 4 + 34];
++
++            if (chunk_data_size != sizeof(flacInfo)) {
++                return ERROR_MALFORMED;
++            }
++
++            data_offset += 4;
++            size_t flacOffset = 4;
++            // Add flaC header mediaType to CSD
++            strncpy((char *)flacInfo, "fLaC", 4);
++
++            ssize_t bytesToRead = sizeof(flacInfo) - flacOffset;
++            if (mDataSource->readAt(
++                    data_offset, flacInfo + flacOffset, bytesToRead) < bytesToRead) {
++                return ERROR_IO;
++            }
++
++            data_offset += bytesToRead;
++            AMediaFormat_setBuffer(mLastTrack->meta, AMEDIAFORMAT_KEY_CSD_0, flacInfo,
++                                    sizeof(flacInfo));
++            break;
++        }
++
+         case FOURCC("avcC"):
+         {
+             *offset += chunk_size;
+
+From b45cf1c42ec362b82f3f66c45d48599cac5d3526 Mon Sep 17 00:00:00 2001
+From: Shuzhen Wang <shuzhenwang@google.com>
+Date: Fri, 27 May 2022 20:25:36 +0000
+Subject: [PATCH 36/71] Camera: Fix race between notifyDeviceStateChange and
+ removeProvider
+
+Make a copy of mProviders in notifyDeviceStateChange to avoid race
+condition between notifyDeviceStateChange and removeProvider.
+
+When iterating through mProviders, we temporarly unlock mInterfaceMutex.
+Because of that, it's possible some providers have been removed from
+mProviders during iteration, causing invalid memory access.
+
+Test: Vendor testing, Camera CTS
+Bug: 234146453
+Change-Id: I69cbeff07bacc905f34e4fbd0ba666c677ccf1a7
+Signed-off-by: minarypenguin <alexfinhart@gmail.com>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../libcameraservice/common/CameraProviderManager.cpp       | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/services/camera/libcameraservice/common/CameraProviderManager.cpp b/services/camera/libcameraservice/common/CameraProviderManager.cpp
+index abaea6639f..e36f761534 100644
+--- a/services/camera/libcameraservice/common/CameraProviderManager.cpp
++++ b/services/camera/libcameraservice/common/CameraProviderManager.cpp
+@@ -579,7 +579,11 @@ status_t CameraProviderManager::notifyDeviceStateChange(int64_t newState) {
+     std::lock_guard<std::mutex> lock(mInterfaceMutex);
+     mDeviceState = newState;
+     status_t res = OK;
+-    for (auto& provider : mProviders) {
++    // Make a copy of mProviders because we unlock mInterfaceMutex temporarily
++    // within the loop. It's possible that during the time mInterfaceMutex is
++    // unlocked, mProviders has changed.
++    auto providers = mProviders;
++    for (auto& provider : providers) {
+         ALOGV("%s: Notifying %s for new state 0x%" PRIx64,
+                 __FUNCTION__, provider->mProviderName.c_str(), newState);
+         // b/199240726 Camera providers can for example try to add/remove
+
+From 3b7b7f61ba5abca20e3f44d8bd3ab42079dafbdb Mon Sep 17 00:00:00 2001
+From: Mikhail Naganov <mnaganov@google.com>
+Date: Wed, 15 Jun 2022 00:46:43 +0000
+Subject: [PATCH 37/71] Fix code issues in APM found with unit tests
+
+A couple of issues resulted from refactoring done without
+adequate test support. These issues were found with unit
+tests being added.
+
+Bug: 215794103
+Test: atest audiosystem_tests audiorecord_tests
+Change-Id: If6c55a2471ff6f21872ec5fa915592a713f244a5
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ services/audiopolicy/managerdefault/AudioPolicyManager.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+index 6cdcde4d8e..7191ca3c22 100644
+--- a/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
++++ b/services/audiopolicy/managerdefault/AudioPolicyManager.cpp
+@@ -3141,7 +3141,7 @@ status_t AudioPolicyManager::getVolumeIndexForAttributes(const audio_attributes_
+     // stream by the engine.
+     DeviceTypeSet deviceTypes = {device};
+     if (device == AUDIO_DEVICE_OUT_DEFAULT_FOR_VOLUME) {
+-        DeviceTypeSet deviceTypes = mEngine->getOutputDevicesForAttributes(
++        deviceTypes = mEngine->getOutputDevicesForAttributes(
+                 attr, nullptr, true /*fromCache*/).types();
+     }
+     return getVolumeIndex(getVolumeCurves(attr), index, deviceTypes);
+@@ -3151,7 +3151,7 @@ status_t AudioPolicyManager::getVolumeIndex(const IVolumeCurves &curves,
+                                             int &index,
+                                             const DeviceTypeSet& deviceTypes) const
+ {
+-    if (isSingleDeviceType(deviceTypes, audio_is_output_device)) {
++    if (!isSingleDeviceType(deviceTypes, audio_is_output_device)) {
+         return BAD_VALUE;
+     }
+     index = curves.getVolumeIndex(deviceTypes);
+
+From 37eba26573bc19d8374c532509bb5968656af04a Mon Sep 17 00:00:00 2001
+From: Chih-Hung Hsieh <chh@google.com>
+Date: Thu, 9 Jun 2022 23:16:12 -0700
+Subject: [PATCH 38/71] Fix/suppress bugprone-branch-clone warnings
+
+* bugprone-* are treated as errors.
+
+Bug: 155034972
+Test: make tidy-soong_subset
+Change-Id: I122f89cec98a514e2d48f1ff136bb7ead5f66b4e
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/libaaudio/src/core/AAudioAudio.cpp            |  4 +---
+ media/libaaudio/src/core/AAudioStreamParameters.cpp |  1 -
+ services/mediametrics/MediaMetricsService.cpp       |  2 ++
+ services/mediametrics/statsd_audiorecord.cpp        | 10 ++++------
+ 4 files changed, 7 insertions(+), 10 deletions(-)
+
+diff --git a/media/libaaudio/src/core/AAudioAudio.cpp b/media/libaaudio/src/core/AAudioAudio.cpp
+index 90ff4a58bd..938079b708 100644
+--- a/media/libaaudio/src/core/AAudioAudio.cpp
++++ b/media/libaaudio/src/core/AAudioAudio.cpp
+@@ -566,9 +566,7 @@ AAUDIO_API aaudio_result_t AAudioStream_getTimestamp(AAudioStream* stream,
+                                       int64_t *timeNanoseconds)
+ {
+     AudioStream *audioStream = convertAAudioStreamToAudioStream(stream);
+-    if (framePosition == nullptr) {
+-        return AAUDIO_ERROR_NULL;
+-    } else if (timeNanoseconds == nullptr) {
++    if (framePosition == nullptr || timeNanoseconds == nullptr) {
+         return AAUDIO_ERROR_NULL;
+     } else if (clockid != CLOCK_MONOTONIC && clockid != CLOCK_BOOTTIME) {
+         return AAUDIO_ERROR_ILLEGAL_ARGUMENT;
+diff --git a/media/libaaudio/src/core/AAudioStreamParameters.cpp b/media/libaaudio/src/core/AAudioStreamParameters.cpp
+index 8b7b75efde..31fd011d4c 100644
+--- a/media/libaaudio/src/core/AAudioStreamParameters.cpp
++++ b/media/libaaudio/src/core/AAudioStreamParameters.cpp
+@@ -83,7 +83,6 @@ aaudio_result_t AAudioStreamParameters::validate() const {
+     switch (mSessionId) {
+         case AAUDIO_SESSION_ID_NONE:
+         case AAUDIO_SESSION_ID_ALLOCATE:
+-            break;
+         default:
+             break;
+     }
+diff --git a/services/mediametrics/MediaMetricsService.cpp b/services/mediametrics/MediaMetricsService.cpp
+index ff16b9edab..9e2f896477 100644
+--- a/services/mediametrics/MediaMetricsService.cpp
++++ b/services/mediametrics/MediaMetricsService.cpp
+@@ -72,6 +72,7 @@ nsecs_t MediaMetricsService::roundTime(nsecs_t timeNs)
+ bool MediaMetricsService::useUidForPackage(
+         const std::string& package, const std::string& installer)
+ {
++    // NOLINTBEGIN(bugprone-branch-clone)
+     if (strchr(package.c_str(), '.') == nullptr) {
+         return false;  // not of form 'com.whatever...'; assume internal and ok
+     } else if (strncmp(package.c_str(), "android.", 8) == 0) {
+@@ -85,6 +86,7 @@ bool MediaMetricsService::useUidForPackage(
+     } else {
+         return true;  // we're not sure where it came from, use uid only.
+     }
++    // NOLINTEND(bugprone-branch-clone)
+ }
+ 
+ /* static */
+diff --git a/services/mediametrics/statsd_audiorecord.cpp b/services/mediametrics/statsd_audiorecord.cpp
+index a7b045e936..01adf7f9c2 100644
+--- a/services/mediametrics/statsd_audiorecord.cpp
++++ b/services/mediametrics/statsd_audiorecord.cpp
+@@ -99,16 +99,14 @@ bool statsd_audiorecord(const std::shared_ptr<const mediametrics::Item>& item,
+     }
+ 
+     int32_t error_code = -1;
+-    if (item->getInt32("android.media.audiorecord.errcode", &error_code)) {
+-        metrics_proto.set_error_code(error_code);
+-    } else if (item->getInt32("android.media.audiorecord.lastError.code", &error_code)) {
++    if (item->getInt32("android.media.audiorecord.errcode", &error_code) ||
++        item->getInt32("android.media.audiorecord.lastError.code", &error_code)) {
+         metrics_proto.set_error_code(error_code);
+     }
+ 
+     std::string error_function;
+-    if (item->getString("android.media.audiorecord.errfunc", &error_function)) {
+-        metrics_proto.set_error_function(error_function);
+-    } else if (item->getString("android.media.audiorecord.lastError.at", &error_function)) {
++    if (item->getString("android.media.audiorecord.errfunc", &error_function) ||
++        item->getString("android.media.audiorecord.lastError.at", &error_function)) {
+         metrics_proto.set_error_function(error_function);
+     }
+ 
+
+From 9ece667e78aa1391a26511815088a5a431424152 Mon Sep 17 00:00:00 2001
+From: Ayushi Khopkar <ayushi.khopkar@ittiam.com>
+Date: Fri, 26 Feb 2021 15:45:30 +0530
+Subject: [PATCH 39/71] libstagefright: Bug Fix
+
+Added NULL check before accessing 'mDecoder' in FrameDecoder
+
+Test: Build libstagefright
+Bug: 180615272
+
+Change-Id: I6491e9795691fe4bf8f64688ab44704d286ecc85
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/libstagefright/FrameDecoder.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/media/libstagefright/FrameDecoder.cpp b/media/libstagefright/FrameDecoder.cpp
+index 3df8766cfb..ce4b4e6141 100644
+--- a/media/libstagefright/FrameDecoder.cpp
++++ b/media/libstagefright/FrameDecoder.cpp
+@@ -349,6 +349,10 @@ status_t FrameDecoder::extractInternal() {
+     status_t err = OK;
+     bool done = false;
+     size_t retriesLeft = kRetryCount;
++    if (!mDecoder) {
++        ALOGE("decoder is not initialized");
++        return NO_INIT;
++    }
+     do {
+         size_t index;
+         int64_t ptsUs = 0LL;
+
+From 7157247936c00ce28ebd8cf70acf550a39ca4f1e Mon Sep 17 00:00:00 2001
+From: George Burgess IV <gbiv@google.com>
+Date: Mon, 18 Jul 2022 11:05:10 -0700
+Subject: [PATCH 40/71] TargetAudioEncTest: use vector instead of malloc
+
+The static analyzer noted that we'll fail to `free` this `malloc()` if any
+ASSERT between it and the `free()` fails. Just use a `vector<char>`
+instead, since that handles freeing for us.
+
+Bug: 206470603
+Test: TreeHugger
+Google: 2157356
+Change-Id: I2c7edab803420beb9f4d72c83f6a770fb053413e
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../audio/VtsHalMediaC2V1_0TargetAudioEncTest.cpp         | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/media/codec2/hidl/1.0/vts/functional/audio/VtsHalMediaC2V1_0TargetAudioEncTest.cpp b/media/codec2/hidl/1.0/vts/functional/audio/VtsHalMediaC2V1_0TargetAudioEncTest.cpp
+index bd7ec0d934..327717b411 100644
+--- a/media/codec2/hidl/1.0/vts/functional/audio/VtsHalMediaC2V1_0TargetAudioEncTest.cpp
++++ b/media/codec2/hidl/1.0/vts/functional/audio/VtsHalMediaC2V1_0TargetAudioEncTest.cpp
+@@ -372,9 +372,8 @@ void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& comp
+             ULock l(queueLock);
+             flushedIndices.emplace_back(frameID);
+         }
+-        char* data = (char*)malloc(bytesCount);
+-        ASSERT_NE(data, nullptr);
+-        eleStream.read(data, bytesCount);
++        std::vector<char> eleData(bytesCount);
++        eleStream.read(eleData.data(), bytesCount);
+         // if we have reached at the end of input stream, signal eos
+         if (eleStream.gcount() < bytesCount) {
+             bytesCount = eleStream.gcount();
+@@ -396,12 +395,11 @@ void encodeNFrames(const std::shared_ptr<android::Codec2Client::Component>& comp
+         ASSERT_EQ(0u, view.offset());
+         ASSERT_EQ((size_t)bytesCount, view.size());
+ 
+-        memcpy(view.base(), data, bytesCount);
++        memcpy(view.base(), eleData.data(), bytesCount);
+         work->input.buffers.clear();
+         work->input.buffers.emplace_back(new LinearBuffer(block));
+         work->worklets.clear();
+         work->worklets.emplace_back(new C2Worklet);
+-        free(data);
+ 
+         std::list<std::unique_ptr<C2Work>> items;
+         items.push_back(std::move(work));
+
+From 7f74935f3e9184b298b31d6dec6a2e91a2a6f62b Mon Sep 17 00:00:00 2001
+From: Yan Minzhi <yan.minzhi@zte.com.cn>
+Date: Fri, 17 Jun 2022 15:16:50 +0800
+Subject: [PATCH 41/71] ATSParser: fix memory leak caused by invalid
+ ElementaryStreamQueue mode
+
+Fix memory leak in media.extractor caused by new ElementaryStreamQueue
+with invalid mode, such as when mStreamType is STREAMTYPE_PES_PRIVATE_DATA
+and mStreamTypeExt is not EXT_DESCRIPTOR_DVB_AC4.
+
+Change-Id: I7f820a919ad276f3a47d91c98e7fc57d3d496385
+---
+ media/libstagefright/mpeg2ts/ATSParser.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/media/libstagefright/mpeg2ts/ATSParser.cpp b/media/libstagefright/mpeg2ts/ATSParser.cpp
+index 1482072b3b..d393499211 100644
+--- a/media/libstagefright/mpeg2ts/ATSParser.cpp
++++ b/media/libstagefright/mpeg2ts/ATSParser.cpp
+@@ -936,6 +936,12 @@ ATSParser::Stream::Stream(
+             return;
+     }
+ 
++    if (mode == ElementaryStreamQueue::INVALID) {
++        ALOGE("stream PID 0x%02x has invalid stream mType:0x%02x or mTypeExt:0x%02x",
++                info.mPID, info.mType, info.mTypeExt);
++        return;
++    }
++
+     mQueue = new ElementaryStreamQueue(mode, flags);
+ 
+     if (mQueue != NULL) {
+
+From 6916e9498d582ff4bbe1075d9db57152af767a3e Mon Sep 17 00:00:00 2001
+From: "zirui.xiao" <zirui.xiao@amlogic.com>
+Date: Wed, 15 Dec 2021 19:58:45 +0800
+Subject: [PATCH 42/71] audio: fix camera record no audio issue [1/1]
+
+PD#SWPL-67534
+
+Problem:
+Camera recording no audio output if device has no build-in mic attached.
+
+Solution:
+Modify the default audio_policy to select USB in firstly.
+
+Verify:
+S4 SC2
+
+Signed-off-by: zirui.xiao <zirui.xiao@amlogic.com>
+Change-Id: Ieec25534960cf0b7b51f153cbbf5f22c58691a69
+---
+ services/audiopolicy/enginedefault/src/Engine.cpp | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/services/audiopolicy/enginedefault/src/Engine.cpp b/services/audiopolicy/enginedefault/src/Engine.cpp
+index d6b514b561..56ab3814e8 100644
+--- a/services/audiopolicy/enginedefault/src/Engine.cpp
++++ b/services/audiopolicy/enginedefault/src/Engine.cpp
+@@ -543,8 +543,8 @@ sp<DeviceDescriptor> Engine::getDeviceForInputSource(audio_source_t inputSource)
+             break;
+         case AUDIO_DEVICE_OUT_SPEAKER:
+             device = availableDevices.getFirstExistingDevice({
+-                    AUDIO_DEVICE_IN_BACK_MIC, AUDIO_DEVICE_IN_BUILTIN_MIC,
+-                    AUDIO_DEVICE_IN_USB_DEVICE, AUDIO_DEVICE_IN_USB_HEADSET});
++                    AUDIO_DEVICE_IN_USB_DEVICE, AUDIO_DEVICE_IN_USB_HEADSET,
++                    AUDIO_DEVICE_IN_BACK_MIC, AUDIO_DEVICE_IN_BUILTIN_MIC});
+             break;
+         default:    // FORCE_NONE
+             device = availableDevices.getFirstExistingDevice({
+@@ -590,8 +590,8 @@ sp<DeviceDescriptor> Engine::getDeviceForInputSource(audio_source_t inputSource)
+     case AUDIO_SOURCE_CAMCORDER:
+         // For a device without built-in mic, adding usb device
+         device = availableDevices.getFirstExistingDevice({
+-                AUDIO_DEVICE_IN_BACK_MIC, AUDIO_DEVICE_IN_BUILTIN_MIC,
+-                AUDIO_DEVICE_IN_USB_DEVICE});
++                AUDIO_DEVICE_IN_USB_DEVICE, AUDIO_DEVICE_IN_BACK_MIC,
++                AUDIO_DEVICE_IN_BUILTIN_MIC});
+         break;
+     case AUDIO_SOURCE_VOICE_DOWNLINK:
+     case AUDIO_SOURCE_VOICE_CALL:
+
+From ccd5618b32f1dc3516645d00b92b235d86c2d07d Mon Sep 17 00:00:00 2001
+From: Amit Shekhar <ashekhar@qualcomm.corp-partner.google.com>
+Date: Fri, 30 Sep 2022 09:54:54 -0700
+Subject: [PATCH 43/71] codec2: Fix temporal-layering to schema conversion
+
+Currently temporal-layering to schema conversion misses execution of
+last 'else-if' block. This leads to the bug where layercount will not be
+converted. Fix last block execution by removing condition check.
+
+Change-Id: I432cb810892fb221b0a50f7a16c1c2d1aef677f2
+---
+ media/codec2/sfplugin/CCodecConfig.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/media/codec2/sfplugin/CCodecConfig.cpp b/media/codec2/sfplugin/CCodecConfig.cpp
+index 5208be67d9..64a1a18d7a 100644
+--- a/media/codec2/sfplugin/CCodecConfig.cpp
++++ b/media/codec2/sfplugin/CCodecConfig.cpp
+@@ -1451,7 +1451,7 @@ sp<AMessage> CCodecConfig::getFormatForDomain(
+                             "android.generic.%u+%u",
+                             layering->m.layerCount - layering->m.bLayerCount,
+                             layering->m.bLayerCount));
+-                } else if (layering->m.bLayerCount) {
++                } else {
+                     msg->setString(KEY_TEMPORAL_LAYERING, AStringPrintf(
+                             "android.generic.%u", layering->m.layerCount));
+                 }
+
+From 3ffa51a26322d4df56499eb036af51f05ed81170 Mon Sep 17 00:00:00 2001
+From: Amit Shekhar <ashekhar@qualcomm.corp-partner.google.com>
+Date: Fri, 30 Sep 2022 13:25:04 -0700
+Subject: [PATCH 44/71] screenrecord: Add support for temporal layer info
+
+Add support for temporal layer info.
+Assumption: KEY_TEMPORAL_LAYERING takes precedence if KEY_MAX_B_FRAMES
+is also set.
+
+Change-Id: I0d23b831cadaed82d1dd3e6bf108f3e2043df828
+---
+ cmds/screenrecord/screenrecord.cpp | 71 +++++++++++++++++++++++++++++-
+ 1 file changed, 69 insertions(+), 2 deletions(-)
+
+diff --git a/cmds/screenrecord/screenrecord.cpp b/cmds/screenrecord/screenrecord.cpp
+index 2e0b678e7c..2147e52c54 100644
+--- a/cmds/screenrecord/screenrecord.cpp
++++ b/cmds/screenrecord/screenrecord.cpp
+@@ -56,6 +56,7 @@
+ #include <media/stagefright/PersistentSurface.h>
+ #include <media/stagefright/foundation/ABuffer.h>
+ #include <media/stagefright/foundation/AMessage.h>
++#include <media/stagefright/foundation/AString.h>
+ #include <mediadrm/ICrypto.h>
+ #include <ui/DisplayMode.h>
+ #include <ui/DisplayState.h>
+@@ -68,6 +69,7 @@ using android::ABuffer;
+ using android::ALooper;
+ using android::AMessage;
+ using android::AString;
++using android::AStringPrintf;
+ using android::ui::DisplayMode;
+ using android::FrameOutput;
+ using android::IBinder;
+@@ -119,6 +121,9 @@ static uint32_t gVideoHeight = 0;
+ static uint32_t gBitRate = 20000000;     // 20Mbps
+ static uint32_t gTimeLimitSec = kMaxTimeLimitSec;
+ static uint32_t gBframes = 0;
++static uint32_t gLayerCount = 0;         // Temporal Layer info (Layer count in total)
++static uint32_t gBLayerCount = 0;        // Temporal Layer info (Bi Layer count)
++static bool gTSSchemaSet = false;        // was temporal layer explicitly requested?
+ static PhysicalDisplayId gPhysicalDisplayId;
+ // Set by signal handler to stop recording.
+ static volatile bool gStopRequested = false;
+@@ -197,8 +202,22 @@ static status_t prepareEncoder(float displayFps, sp<MediaCodec>* pCodec,
+     format->setInt32(KEY_BIT_RATE, gBitRate);
+     format->setFloat(KEY_FRAME_RATE, displayFps);
+     format->setInt32(KEY_I_FRAME_INTERVAL, 10);
+-    format->setInt32(KEY_MAX_B_FRAMES, gBframes);
+-    if (gBframes > 0) {
++    if (gTSSchemaSet) {
++        if (gBLayerCount) {
++            format->setString(KEY_TEMPORAL_LAYERING, AStringPrintf(
++                        "android.generic.%u+%u",
++                        gLayerCount,
++                        gBLayerCount));
++        } else {
++            format->setString(KEY_TEMPORAL_LAYERING, AStringPrintf(
++                        "android.generic.%u",
++                        gLayerCount));
++        }
++    } else if (gBframes) {
++        format->setInt32(KEY_MAX_B_FRAMES, gBframes);
++    }
++
++    if (gBframes > 0 || gTSSchemaSet) {
+         format->setInt32(KEY_PROFILE, AVCProfileMain);
+         format->setInt32(KEY_LEVEL, AVCLevel41);
+     }
+@@ -981,6 +1000,41 @@ static bool parseWidthHeight(const char* widthHeight, uint32_t* pWidth,
+     return true;
+ }
+ 
++/*
++ * Parses a string of the form "1+2".
++ *
++ * Returns true on success.
++ */
++static bool parseTemporalLayerInfo(const char* tsSchema, uint32_t* pLayerCount,
++        uint32_t* pBLayerCount) {
++    uint32_t layerCount = 0, bLayerCount = 0;
++    char* end;
++
++    // Must specify base 10, or "0+0" gets parsed differently.
++    layerCount = strtoul(tsSchema, &end, 10);
++    if (end == tsSchema) {
++        return false;
++    }
++    *pLayerCount = layerCount;
++
++    if (*end != '+') {
++        return true;
++    }
++
++    if (*(end+1) == '\0') {
++        bLayerCount = 0;
++    } else {
++        bLayerCount = strtol(end + 1, &end, 10);
++        if (*end != '\0') {
++            // invalid chars in bLayerCount
++            return false;
++        }
++    }
++
++    *pBLayerCount = bLayerCount;
++    return true;
++}
++
+ /*
+  * Accepts a string with a bare number ("4000000") or with a single-character
+  * unit ("4m").
+@@ -1032,6 +1086,10 @@ static void usage() {
+         "    see \"dumpsys SurfaceFlinger --display-id\" for valid display IDs.\n"
+         "--verbose\n"
+         "    Display interesting information on stdout.\n"
++        "--ts-schema N+M\n"
++        "    Set temporal layering following ts-schema taking values N, N+M,\n"
++        "    where N denotes the total number of non-bidirectional layers (which must be at least 1)\n"
++        "    and M denotes the total number of bidirectional layers (which must be non-negative)..\n"
+         "--help\n"
+         "    Show this message.\n"
+         "\n"
+@@ -1061,6 +1119,7 @@ int main(int argc, char* const argv[]) {
+         { "monotonic-time",     no_argument,        NULL, 'm' },
+         { "persistent-surface", no_argument,        NULL, 'p' },
+         { "bframes",            required_argument,  NULL, 'B' },
++        { "ts-schema",          required_argument,  NULL, 'T' },
+         { "display-id",         required_argument,  NULL, 'd' },
+         { NULL,                 0,                  NULL, 0 }
+     };
+@@ -1167,6 +1226,14 @@ int main(int argc, char* const argv[]) {
+                 return 2;
+             }
+             break;
++        case 'T':
++            if (!parseTemporalLayerInfo(optarg, &gLayerCount, &gBLayerCount)) {
++                fprintf(stderr, "Invalid temporal layer info '%s', must be N or N+M\n",
++                        optarg);
++                return 2;
++            }
++            gTSSchemaSet = true;
++            break;
+         case 'd':
+             if (const auto id = android::DisplayId::fromValue<PhysicalDisplayId>(atoll(optarg));
+                 id && SurfaceComposerClient::getPhysicalDisplayToken(*id)) {
+
+From 9ddb6e603adf5cd531493a574e82b2f6569eb36a Mon Sep 17 00:00:00 2001
+From: Yanqiang Fan <yanqiang.fan@mediatek.com>
+Date: Fri, 16 Sep 2022 16:06:55 +0800
+Subject: [PATCH 45/71] fix access null pointer exception
+
+If IComponentStore/default service is died,
+the transResult of hwbinder call through hidl will return not Ok,
+then the "base" parameter transfered to Codec2ConfigurableClient
+will be null, it will implement base->getName() without null pointer check.
+which will cause exception.
+
+Test: MTBF
+Change-Id: Ibecd5343eda8f80ad847339148a8e57588f0fb11
+---
+ media/codec2/hidl/client/client.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/media/codec2/hidl/client/client.cpp b/media/codec2/hidl/client/client.cpp
+index 0acf7d726c..aff9b84972 100644
+--- a/media/codec2/hidl/client/client.cpp
++++ b/media/codec2/hidl/client/client.cpp
+@@ -266,12 +266,18 @@ Codec2ConfigurableClient::Codec2ConfigurableClient(
+       : mBase{base},
+         mName{[base]() -> C2String {
+                 C2String outName;
++                if(base == nullptr) {
++                    return "";
++                }
+                 Return<void> transStatus = base->getName(
+                         [&outName](const hidl_string& name) {
+                             outName = name.c_str();
+                         });
+                 return transStatus.isOk() ? outName : "";
+             }()} {
++    if(!mBase) {
++        LOG(ERROR) << "Codec2ConfigurableClient -- transaction failed.";
++    }
+ }
+ 
+ c2_status_t Codec2ConfigurableClient::query(
+
+From 2cc2b7df1af2e4d9cc00ac26ea149a451aee11df Mon Sep 17 00:00:00 2001
+From: Neelkamal Semwal <neelkamal.semwal@ittiam.com>
+Date: Wed, 11 May 2022 14:53:28 +0530
+Subject: [PATCH 46/71] AMRWB Decoder: Fix integer overflow in
+ highpass_50Hz_at_12k8 function
+
+Test: poc in bug
+Test: atest CtsMediaV2TestCases:CodecDecoderTest
+Test: atest VtsHalMediaC2V1_0TargetAudioDecTest
+
+Bug: 229428510
+
+Change-Id: I91e909441cca6c6cefa46a481ae8d0455b6fd08d
+---
+ .../codecs/amrwb/dec/src/highpass_50hz_at_12k8.cpp | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/media/codecs/amrwb/dec/src/highpass_50hz_at_12k8.cpp b/media/codecs/amrwb/dec/src/highpass_50hz_at_12k8.cpp
+index c70c163866..9fc426e7e3 100644
+--- a/media/codecs/amrwb/dec/src/highpass_50hz_at_12k8.cpp
++++ b/media/codecs/amrwb/dec/src/highpass_50hz_at_12k8.cpp
+@@ -151,7 +151,6 @@ void highpass_50Hz_at_12k8(
+     int16 i, x2;
+     int16 y2_hi, y2_lo, y1_hi, y1_lo, x0, x1;
+     int32 L_tmp1;
+-    int32 L_tmp2;
+     int16 *pt_sign = signal;
+ 
+     y2_hi = mem[0];
+@@ -170,18 +169,19 @@ void highpass_50Hz_at_12k8(
+ 
+         L_tmp1 = fxp_mac_16by16(y1_lo, 16211, 8192L);
+         L_tmp1 = fxp_mac_16by16(y2_lo, -8021, L_tmp1);
+-        L_tmp2 = fxp_mul_16by16(y1_hi, 32422);
+-        L_tmp2 = fxp_mac_16by16(y2_hi, -16042, L_tmp2);
++        L_tmp1 = L_tmp1 >> 14;
++        L_tmp1 = fxp_mac_16by16(y1_hi, 32422, L_tmp1);
++        L_tmp1 = fxp_mac_16by16(y2_hi, -16042, L_tmp1);
+ 
+         x2 = x1;
+         x1 = x0;
+         x0 = *pt_sign;
+-        L_tmp2 = fxp_mac_16by16(x2,  8106, L_tmp2);
+-        L_tmp2 = fxp_mac_16by16(x1, -16212, L_tmp2);
+-        L_tmp2 = fxp_mac_16by16(x0,  8106, L_tmp2);
+ 
++        L_tmp1 = fxp_mac_16by16(x2,  8106, L_tmp1);
++        L_tmp1 = fxp_mac_16by16(x1, -16212, L_tmp1);
++        L_tmp1 = fxp_mac_16by16(x0,  8106, L_tmp1);
+ 
+-        L_tmp1 = ((L_tmp1 >> 14) + L_tmp2) << 2;
++        L_tmp1 = L_tmp1 << 2;
+ 
+         y2_hi = y1_hi;
+         y2_lo = y1_lo;
+
+From 6063e61b189eb603a92991698651948a01d74c22 Mon Sep 17 00:00:00 2001
+From: guochuang <guochuang@xiaomi.corp-partner.google.com>
+Date: Wed, 31 Aug 2022 18:03:10 +0800
+Subject: [PATCH 47/71] MediaCodec: Don't disconnectFromSurface when it is
+ using
+
+Bug: 244396994
+Test: manual & presubmit
+Signed-off-by: guochuang <guochuang@xiaomi.corp-partner.google.com>
+Change-Id: I099bfb7a6ca249450e3daf557b1a706d2756cca9
+---
+ media/libstagefright/MediaCodec.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/media/libstagefright/MediaCodec.cpp b/media/libstagefright/MediaCodec.cpp
+index bbe31dc4f9..5ebcb2ce00 100644
+--- a/media/libstagefright/MediaCodec.cpp
++++ b/media/libstagefright/MediaCodec.cpp
+@@ -4030,7 +4030,7 @@ void MediaCodec::onMessageReceived(const sp<AMessage> &msg) {
+                                     err = mCodec->setSurface(surface);
+                                 }
+                             }
+-                            if (err == OK) {
++                            if (err == OK && mSurface->getIGraphicBufferProducer() == nullptr) {
+                                 (void)disconnectFromSurface();
+                                 mSurface = surface;
+                             }
+
+From 9b31238cbe350c09728c4ee9253394dc4e90413a Mon Sep 17 00:00:00 2001
+From: mtk11204 <wenxue.zhang@mediatek.com>
+Date: Wed, 22 Jun 2022 17:49:04 +0800
+Subject: [PATCH 48/71] fix flushed work shouldn't request input
+
+There is work done after flush completed.
+That reqeusts all the input, leading resume requesting input fail
+and report error to app. If the work of onWorkDone is after flush,
+that should not request input.
+
+Bug: 236940478
+Test: Video Playback
+
+Change-Id: Ic7e83b584e321f3dc98a74a0243b6901efc9a625
+---
+ media/codec2/sfplugin/CCodecBufferChannel.cpp | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/media/codec2/sfplugin/CCodecBufferChannel.cpp b/media/codec2/sfplugin/CCodecBufferChannel.cpp
+index 49e5b2a61a..1613a93b2e 100644
+--- a/media/codec2/sfplugin/CCodecBufferChannel.cpp
++++ b/media/codec2/sfplugin/CCodecBufferChannel.cpp
+@@ -1725,11 +1725,13 @@ bool CCodecBufferChannel::handleWork(
+ 
+     // Whether the output buffer should be reported to the client or not.
+     bool notifyClient = false;
++    bool isFlushedWork = false;
+ 
+     if (work->result == C2_OK){
+         notifyClient = true;
+     } else if (work->result == C2_NOT_FOUND) {
+         ALOGD("[%s] flushed work; ignored.", mName);
++        isFlushedWork = true;
+     } else {
+         // C2_OK and C2_NOT_FOUND are the only results that we accept for processing
+         // the config update.
+@@ -2039,6 +2041,11 @@ bool CCodecBufferChannel::handleWork(
+                 worklet->output.ordinal);
+     }
+     sendOutputBuffers();
++
++    if (isFlushedWork) {
++        return false;
++    }
++
+     return true;
+ }
+ 
+
+From 50602debd685835b222e104f9257682b733ae69e Mon Sep 17 00:00:00 2001
+From: Zhiming Jiang <zhiming.jiang@mediatek.com>
+Date: Tue, 13 Oct 2020 15:57:15 +0800
+Subject: [PATCH 49/71] Handle timing issue for set surface flow
+
+if APP set new surface before release all dequeued output buffers during resolution change action,
+ACodec maybe meet a error due to the left output buffer numbers less than minUndequeuedBuffers.
+
+we just record new surface and return in this case.
+
+Bug: 170056739
+Change-Id: I02da903203a4efe471b3cc3c229fb5fa495da4c5
+---
+ media/libstagefright/ACodec.cpp | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/media/libstagefright/ACodec.cpp b/media/libstagefright/ACodec.cpp
+index f15e06241f..92db128b59 100644
+--- a/media/libstagefright/ACodec.cpp
++++ b/media/libstagefright/ACodec.cpp
+@@ -788,6 +788,15 @@ status_t ACodec::handleSetSurface(const sp<Surface> &surface) {
+     std::vector<BufferInfo> &buffers = mBuffers[kPortIndexOutput];
+     ALOGV("setting up surface for %zu buffers", buffers.size());
+ 
++    // output buffer numbers should more than minUndequeuedBuffers (allocate buffer flow ensure it)
++    // we just record new surface during free buffer action
++    if(buffers.size() <= minUndequeuedBuffers){
++        ALOGW("output buffer numbers (%zu) less than minUndequeuedBuffers (%d)",
++               buffers.size(), minUndequeuedBuffers);
++        mNativeWindow = surface;
++        return OK;
++    }
++
+     err = native_window_set_buffer_count(nativeWindow, buffers.size());
+     if (err != 0) {
+         ALOGE("native_window_set_buffer_count failed: %s (%d)", strerror(-err),
+
+From 8a762ce9566e4b181086da95f72b8b2a348c8f3b Mon Sep 17 00:00:00 2001
+From: mtk17381 <fangmao.wu@mediatek.com>
+Date: Thu, 23 Jun 2022 15:24:31 +0800
+Subject: [PATCH 50/71] Fix thumbnail and normal playback both in 8K
+
+If thumbnail and normal playback both in 8K,
+it will cost much resource.
+
+Test:
+MMP 8K thumbnail and normal playback both OK.
+
+Bug: 222071096
+Change-Id: Ic86f5dff01ee77f63d663d58b9be5aa9ae133936
+---
+ media/codec2/core/include/C2Config.h   | 2 ++
+ media/codec2/sfplugin/CCodecConfig.cpp | 6 ++++++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/media/codec2/core/include/C2Config.h b/media/codec2/core/include/C2Config.h
+index 6ff3dbc90b..850b7e5891 100644
+--- a/media/codec2/core/include/C2Config.h
++++ b/media/codec2/core/include/C2Config.h
+@@ -872,6 +872,8 @@ typedef C2PortParam<C2Tuning, C2Uint32Value, kParamIndexDelay> C2PortDelayTuning
+ typedef C2PortDelayTuning C2PortActualDelayTuning; // deprecated
+ constexpr char C2_PARAMKEY_INPUT_DELAY[] = "input.delay";
+ constexpr char C2_PARAMKEY_OUTPUT_DELAY[] = "output.delay";
++constexpr char C2_PARAMKEY_INPUT_BUFFER_NUM[] = "android._num-input-buffers";
++constexpr char C2_PARAMKEY_OUTPUT_BUFFER_NUM[] = "android._num-output-buffers";
+ 
+ // read-only
+ typedef C2GlobalParam<C2Tuning, C2Uint32Value, kParamIndexDelay> C2PipelineDelayTuning;
+diff --git a/media/codec2/sfplugin/CCodecConfig.cpp b/media/codec2/sfplugin/CCodecConfig.cpp
+index 64a1a18d7a..b3321f2965 100644
+--- a/media/codec2/sfplugin/CCodecConfig.cpp
++++ b/media/codec2/sfplugin/CCodecConfig.cpp
+@@ -647,6 +647,12 @@ void CCodecConfig::initializeStandardParams() {
+     add(ConfigMapper(C2_PARAMKEY_TEMPORAL_LAYERING, C2_PARAMKEY_TEMPORAL_LAYERING, "")
+         .limitTo(D::ENCODER & D::VIDEO & D::OUTPUT));
+ 
++    add(ConfigMapper("android._num-input-buffers", C2_PARAMKEY_INPUT_BUFFER_NUM, "value")
++        .limitTo(D::VIDEO & D::PARAM & D::INPUT));
++
++    add(ConfigMapper("android._num-output-buffers", C2_PARAMKEY_OUTPUT_BUFFER_NUM, "value")
++        .limitTo(D::VIDEO & D::PARAM & D::OUTPUT));
++
+     // Pixel Format (use local key for actual pixel format as we don't distinguish between
+     // SDK layouts for flexible format and we need the actual SDK color format in the media format)
+     add(ConfigMapper("android._color-format",  C2_PARAMKEY_PIXEL_FORMAT, "value")
+
+From 07890f31af015d237083a4f0ca5ee13deaf45590 Mon Sep 17 00:00:00 2001
+From: mtk17906 <david-ty.lin@mediatek.com>
+Date: Tue, 31 May 2022 11:36:41 +0800
+Subject: [PATCH 51/71] Fix multi-thread timing issue in sendOutputBuffers
+
+In CCodecBufferChannel::sendOutputBuffers, decoded frames
+are popped from the stash and send to the MediaCodec.
+There is a case that two threads called sendOutputBuffers in order,
+but the MediaCodec didn't received them in order.
+
+Test:
+Stress test the following test case 100 times and pass
+CtsMediaTestCases android.media.cts.DecoderTest#testEOSBehaviorAV1
+
+Bug: 234572030
+Change-Id: If063d93f49e1062ddac1529e5cfc5ec3b62e8d9b
+---
+ media/codec2/sfplugin/CCodecBufferChannel.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/media/codec2/sfplugin/CCodecBufferChannel.cpp b/media/codec2/sfplugin/CCodecBufferChannel.cpp
+index 1613a93b2e..046abf2871 100644
+--- a/media/codec2/sfplugin/CCodecBufferChannel.cpp
++++ b/media/codec2/sfplugin/CCodecBufferChannel.cpp
+@@ -2074,8 +2074,8 @@ void CCodecBufferChannel::sendOutputBuffers() {
+         case OutputBuffers::DISCARD:
+             break;
+         case OutputBuffers::NOTIFY_CLIENT:
+-            output.unlock();
+             mCallback->onOutputBufferAvailable(index, outBuffer);
++            output.unlock();
+             break;
+         case OutputBuffers::REALLOCATE:
+             if (++reallocTryNum > kMaxReallocTry) {
+
+From 685464441ea792d16713b73b5167761e76d6b9c9 Mon Sep 17 00:00:00 2001
+From: mtk11204 <wenxue.zhang@mediatek.com>
+Date: Mon, 11 Oct 2021 15:39:50 +0800
+Subject: [PATCH 52/71] Don't drop HTTPLiveSource metadata
+
+Don't drop HTTPLiveSource metada accessunit
+
+Bug:
+Test: run CTS -m CtsMediaTestCases -t
+android.media.cts.StreamingMediaPlayerTest#testPlayHlsStreamWithTimedId3
+
+Change-Id: Ie9016deb413759a7f7af2b667596f88695d8f8b8
+---
+ media/libmediaplayerservice/nuplayer/HTTPLiveSource.cpp | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/media/libmediaplayerservice/nuplayer/HTTPLiveSource.cpp b/media/libmediaplayerservice/nuplayer/HTTPLiveSource.cpp
+index 4e71e89864..c791fc78be 100644
+--- a/media/libmediaplayerservice/nuplayer/HTTPLiveSource.cpp
++++ b/media/libmediaplayerservice/nuplayer/HTTPLiveSource.cpp
+@@ -273,9 +273,6 @@ void NuPlayer::HTTPLiveSource::pollForRawData(
+             msg->post(delayUs > 0LL ? delayUs : 0LL);
+             return;
+         } else if (fetchType == LiveSession::STREAMTYPE_METADATA) {
+-            if (delayUs < -1000000LL) { // 1 second
+-                continue;
+-            }
+             notify->post();
+             // push all currently available metadata buffers in each invocation of pollForRawData
+             // continue;
+
+From 3298f795b8f0cd70916b4553f5b8b1f7c57fd9e7 Mon Sep 17 00:00:00 2001
+From: mtk12101 <shan.zhang@mediatek.com>
+Date: Thu, 9 Jun 2022 16:17:54 +0800
+Subject: [PATCH 53/71] Fix AV1/VP9 10bit caused fail
+
+The pixel format from AV1/VP9 10bit output buffer is
+HAL_PIXEL_FORMAT_RGBA_1010102, but currently,
+HAL_PIXEL_FORMAT_RGBA_1010102 is not support completely on
+c2 framework,so many cts cases related with AV1/VP9 10bit will fail
+when doing convert.
+
+To fix this issue, we only test those cases on new launch T device.
+
+Bug:235810705
+Test: run CodecDecoderSurfaceTest pass
+
+Change-Id: Id685e8e54b3dae3edbc4b2a64c9a4ff86717e4cc
+---
+ media/codec2/components/base/SimpleC2Component.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/media/codec2/components/base/SimpleC2Component.cpp b/media/codec2/components/base/SimpleC2Component.cpp
+index 9d4f049e52..2437b49304 100644
+--- a/media/codec2/components/base/SimpleC2Component.cpp
++++ b/media/codec2/components/base/SimpleC2Component.cpp
+@@ -334,7 +334,7 @@ void convertYUV420Planar16ToY410OrRGBA1010102(
+         size_t srcYStride, size_t srcUStride,
+         size_t srcVStride, size_t dstStride, size_t width, size_t height,
+         std::shared_ptr<const C2ColorAspectsStruct> aspects) {
+-    if (isAtLeastT()) {
++    if (isVendorApiOrFirstApiAtLeastT()) {
+         convertYUV420Planar16ToRGBA1010102(dst, srcY, srcU, srcV, srcYStride, srcUStride,
+                                            srcVStride, dstStride, width, height, aspects);
+     } else {
+@@ -996,7 +996,7 @@ int SimpleC2Component::getHalPixelFormatForBitDepth10(bool allowRGBA1010102) {
+     // From Android T onwards, HAL_PIXEL_FORMAT_RGBA_1010102 corresponds to true
+     // RGBA 1010102 format unlike earlier versions where it was used to represent
+     // YUVA 1010102 data
+-    if (!isAtLeastT()) {
++    if (!isVendorApiOrFirstApiAtLeastT()) {
+         // When RGBA1010102 is not allowed and if the first supported hal pixel is format is
+         // HAL_PIXEL_FORMAT_RGBA_1010102, then return HAL_PIXEL_FORMAT_YV12
+         if (!allowRGBA1010102 && mBitDepth10HalPixelFormats[0] == HAL_PIXEL_FORMAT_RGBA_1010102) {
+
+From dbec98b3719affcae41fadc747ecf51faf4a4688 Mon Sep 17 00:00:00 2001
+From: zhangjincheng <zhangjincheng@xiaomi.com>
+Date: Fri, 1 Apr 2022 17:06:02 +0800
+Subject: [PATCH 54/71] audio: fix setvolume crash issue
+
+audiotrack may be destroyed when setVolume from IPlayer
+
+Signed-off-by: zhangjincheng <zhangjincheng@xiaomi.com>
+Change-Id: If06c31f45732d9b018fb371933be96f0a1f36a8d
+---
+ media/libaudioclient/PlayerBase.cpp      | 4 ++--
+ media/libaudioclient/TrackPlayerBase.cpp | 3 ++-
+ 2 files changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/media/libaudioclient/PlayerBase.cpp b/media/libaudioclient/PlayerBase.cpp
+index 446a58c6c8..e346ab4a84 100644
+--- a/media/libaudioclient/PlayerBase.cpp
++++ b/media/libaudioclient/PlayerBase.cpp
+@@ -165,8 +165,8 @@ binder::Status PlayerBase::stop() {
+ 
+ binder::Status PlayerBase::setVolume(float vol) {
+     ALOGD("PlayerBase::setVolume() from IPlayer");
++    Mutex::Autolock _l(mSettingsLock);
+     {
+-        Mutex::Autolock _l(mSettingsLock);
+         mVolumeMultiplierL = vol;
+         mVolumeMultiplierR = vol;
+     }
+@@ -179,8 +179,8 @@ binder::Status PlayerBase::setVolume(float vol) {
+ 
+ binder::Status PlayerBase::setPan(float pan) {
+     ALOGD("PlayerBase::setPan() from IPlayer");
++    Mutex::Autolock _l(mSettingsLock);
+     {
+-        Mutex::Autolock _l(mSettingsLock);
+         pan = min(max(-1.0f, pan), 1.0f);
+         if (pan >= 0.0f) {
+             mPanMultiplierL = 1.0f - pan;
+diff --git a/media/libaudioclient/TrackPlayerBase.cpp b/media/libaudioclient/TrackPlayerBase.cpp
+index 4fc1c445c5..b2eecd13ef 100644
+--- a/media/libaudioclient/TrackPlayerBase.cpp
++++ b/media/libaudioclient/TrackPlayerBase.cpp
+@@ -66,6 +66,7 @@ void TrackPlayerBase::SelfAudioDeviceCallback::onAudioDeviceUpdate(audio_io_hand
+ 
+ void TrackPlayerBase::doDestroy() {
+     if (mAudioTrack != 0) {
++        Mutex::Autolock _l(mSettingsLock);
+         mAudioTrack->stop();
+         mAudioTrack->removeAudioDeviceCallback(mSelfAudioDeviceCallback);
+         mSelfAudioDeviceCallback.clear();
+@@ -75,8 +76,8 @@ void TrackPlayerBase::doDestroy() {
+ }
+ 
+ void TrackPlayerBase::setPlayerVolume(float vl, float vr) {
++    Mutex::Autolock _l(mSettingsLock);
+     {
+-        Mutex::Autolock _l(mSettingsLock);
+         mPlayerVolumeL = vl;
+         mPlayerVolumeR = vr;
+     }
+
+From 3768691b740cc07fa7bb99ffbad4a0444863782f Mon Sep 17 00:00:00 2001
+From: Ming Zhou <ming.zhou@nxp.com>
+Date: Tue, 15 Mar 2022 17:32:23 +0800
+Subject: [PATCH 55/71] fix the deadloop when network is disconnect while
+ playing rtsp streaming.
+
+The issue was introduced by commit a261106c95bf8d3de4dc06fa3806f8c45bd91a2b
+If rever the commit, rtsp will stopped after network disconnect.
+rtsp playback can resume with this method when network reconnected.
+
+Bug: 224584833
+Test: plugout & plugin network cable while playing rtsp streaming.
+
+Signed-off-by: Ming Zhou <ming.zhou@nxp.com>
+Change-Id: I69cf418b064c7019b9f0bac25f3682cbb608eb2d
+---
+ media/libstagefright/rtsp/ARTPConnection.cpp | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/media/libstagefright/rtsp/ARTPConnection.cpp b/media/libstagefright/rtsp/ARTPConnection.cpp
+index a61f48f1df..bfd45a8218 100644
+--- a/media/libstagefright/rtsp/ARTPConnection.cpp
++++ b/media/libstagefright/rtsp/ARTPConnection.cpp
+@@ -513,6 +513,7 @@ void ARTPConnection::onPollStreams() {
+                     if (n != (ssize_t)buffer->size()) {
+                         ALOGW("failed to send RTCP TMMBR (%s).",
+                                 n >= 0 ? "connection gone" : strerror(errno));
++                        ++it;//prevent deathloop
+                         continue;
+                     }
+                 }
+@@ -528,18 +529,16 @@ void ARTPConnection::onPollStreams() {
+             || mLastReceiverReportTimeUs + 5000000LL <= nowUs) {
+         sp<ABuffer> buffer = new ABuffer(kMaxUDPSize);
+         List<StreamInfo>::iterator it = mStreams.begin();
+-        while (it != mStreams.end()) {
++        for( ; it != mStreams.end(); ++it) {
+             StreamInfo *s = &*it;
+ 
+             if (s->mIsInjected) {
+-                ++it;
+                 continue;
+             }
+ 
+             if (s->mNumRTCPPacketsReceived == 0) {
+                 // We have never received any RTCP packets on this stream,
+                 // we don't even know where to send a report.
+-                ++it;
+                 continue;
+             }
+ 
+@@ -570,7 +569,6 @@ void ARTPConnection::onPollStreams() {
+                 mLastReceiverReportTimeUs = nowUs;
+             }
+ 
+-            ++it;
+         }
+     }
+ 
+@@ -635,7 +633,7 @@ status_t ARTPConnection::receive(StreamInfo *s, bool receiveRTP) {
+ 
+     buffer->setRange(0, nbytes);
+ 
+-    // ALOGI("received %d bytes.", buffer->size());
++    // ALOGI("received %zu bytes.", buffer->size());
+ 
+     status_t err;
+     if (receiveRTP) {
+
+From 21605568fbb1534af6d42cae6728e2e45b2c822b Mon Sep 17 00:00:00 2001
+From: George Burgess IV <gbiv@google.com>
+Date: Mon, 10 Oct 2022 11:36:28 -0700
+Subject: [PATCH 56/71] TimedTextUnitTest: remove pointless string copy
+
+Creating a copy of this isn't needed, and makes the static analyzer
+complain, since testing ASSERT failures exit early.
+
+>
+frameworks/av/media/libstagefright/timedtext/test/TimedTextUnitTest.cpp:244:21:
+warning: Potential leak of memory pointed to by 'tmpFontName'
+[clang-analyzer-unix.Malloc]
+
+Bug: 206470603
+Test: TreeHugger
+Change-Id: I1f276739775cf01d682c2aaf29823c8200814abb
+---
+ media/libstagefright/timedtext/test/TimedTextUnitTest.cpp | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/media/libstagefright/timedtext/test/TimedTextUnitTest.cpp b/media/libstagefright/timedtext/test/TimedTextUnitTest.cpp
+index f934b54e69..7a72c4e750 100644
+--- a/media/libstagefright/timedtext/test/TimedTextUnitTest.cpp
++++ b/media/libstagefright/timedtext/test/TimedTextUnitTest.cpp
+@@ -240,10 +240,7 @@ TEST_P(Text3GPPDescriptionTest, Text3GPPGlobalDescriptionTest) {
+ 
+                     if (remaining < tempFontNameLength) break;
+                     const uint8_t *tmpFont = tmpData;
+-                    char *tmpFontName = strndup((const char *)tmpFont, tempFontNameLength);
+-                    ASSERT_NE(tmpFontName, nullptr) << "Font Name is null";
+-                    ALOGI("FontName = %s", tmpFontName);
+-                    free(tmpFontName);
++                    ALOGI("FontName = %.*s", tempFontNameLength, tmpFont);
+                     tmpData += tempFontNameLength;
+                     remaining -= tempFontNameLength;
+                     fontRecordEntries.push_back({tempFontID, tempFontNameLength, tmpFont});
+
+From cb52e271b4f3fa4d9b1ef4a987a75d6d99992ff0 Mon Sep 17 00:00:00 2001
+From: Pranav Vashi <neobuddy89@gmail.com>
+Date: Thu, 2 Jun 2022 18:23:53 +0530
+Subject: [PATCH 57/71] av: Initial support for 24bit encoding and 6 channels
+
+* From CAF.
+
+Change-Id: I32bb7470c2abede313d6392dede4873270d720cc
+---
+ .../StagefrightRecorder.cpp                   |  2 +-
+ media/libstagefright/ACodec.cpp               |  7 +++++
+ media/libstagefright/AudioSource.cpp          |  2 +-
+ media/libstagefright/DataConverter.cpp        | 31 +++++++++++++++++--
+ 4 files changed, 37 insertions(+), 5 deletions(-)
+
+diff --git a/media/libmediaplayerservice/StagefrightRecorder.cpp b/media/libmediaplayerservice/StagefrightRecorder.cpp
+index 6ff62bba5b..6deb2bd083 100644
+--- a/media/libmediaplayerservice/StagefrightRecorder.cpp
++++ b/media/libmediaplayerservice/StagefrightRecorder.cpp
+@@ -548,7 +548,7 @@ status_t StagefrightRecorder::setParamAudioSamplingRate(int32_t sampleRate) {
+ 
+ status_t StagefrightRecorder::setParamAudioNumberOfChannels(int32_t channels) {
+     ALOGV("setParamAudioNumberOfChannels: %d", channels);
+-    if (channels <= 0 || channels >= 3) {
++    if (channels <= 0 || channels > 6) {
+         ALOGE("Invalid number of audio channels: %d", channels);
+         return BAD_VALUE;
+     }
+diff --git a/media/libstagefright/ACodec.cpp b/media/libstagefright/ACodec.cpp
+index 92db128b59..d0408d8dcb 100644
+--- a/media/libstagefright/ACodec.cpp
++++ b/media/libstagefright/ACodec.cpp
+@@ -3300,6 +3300,10 @@ status_t ACodec::setupRawAudioFormat(
+             pcmParams.eNumData = OMX_NumericalDataSigned;
+             pcmParams.nBitPerSample = 16;
+             break;
++        case kAudioEncodingPcm24bitPacked:
++            pcmParams.eNumData = OMX_NumericalDataSigned;
++            pcmParams.nBitPerSample = 24;
++            break;
+         default:
+             return BAD_VALUE;
+     }
+@@ -5409,6 +5413,9 @@ status_t ACodec::getPortFormat(OMX_U32 portIndex, sp<AMessage> &notify) {
+                     } else if (params.eNumData == OMX_NumericalDataFloat
+                             && params.nBitPerSample == 32u) {
+                         encoding = kAudioEncodingPcmFloat;
++                    } else if (params.eNumData == OMX_NumericalDataSigned
++                            && params.nBitPerSample == 24u) {
++                        encoding = kAudioEncodingPcm24bitPacked;
+                     } else if (params.nBitPerSample != 16u
+                             || params.eNumData != OMX_NumericalDataSigned) {
+                         ALOGE("unsupported PCM port: %s(%d), %s(%d) mode ",
+diff --git a/media/libstagefright/AudioSource.cpp b/media/libstagefright/AudioSource.cpp
+index bfe85388fc..833d1dc812 100644
+--- a/media/libstagefright/AudioSource.cpp
++++ b/media/libstagefright/AudioSource.cpp
+@@ -93,7 +93,7 @@ void AudioSource::set(
+    mNoMoreFramesToRead = false;
+   ALOGV("sampleRate: %u, outSampleRate: %u, channelCount: %u",
+         sampleRate, outSampleRate, channelCount);
+-  CHECK(channelCount == 1 || channelCount == 2);
++  CHECK(channelCount == 1 || channelCount == 2 || channelCount == 6);
+   CHECK(sampleRate > 0);
+ 
+   size_t minFrameCount;
+diff --git a/media/libstagefright/DataConverter.cpp b/media/libstagefright/DataConverter.cpp
+index 52be05485b..fb714ea2bd 100644
+--- a/media/libstagefright/DataConverter.cpp
++++ b/media/libstagefright/DataConverter.cpp
+@@ -24,6 +24,9 @@
+ #include <media/MediaCodecBuffer.h>
+ #include <media/stagefright/foundation/ADebug.h>
+ #include <media/stagefright/foundation/AUtils.h>
++#include <system/audio.h>
++#include <audio_utils/primitives.h>
++#include <audio_utils/format.h>
+ 
+ namespace android {
+ 
+@@ -81,12 +84,34 @@ size_t SampleConverterBase::targetSize(size_t sourceSize) {
+     return numSamples * mTargetSampleSize;
+ }
+ 
++static audio_format_t getAudioFormat(AudioEncoding e) {
++    audio_format_t format = AUDIO_FORMAT_INVALID;
++    switch (e) {
++        case kAudioEncodingPcm16bit:
++            format = AUDIO_FORMAT_PCM_16_BIT;
++            break;
++        case kAudioEncodingPcm8bit:
++            format = AUDIO_FORMAT_PCM_8_BIT;
++            break;
++        case kAudioEncodingPcmFloat:
++            format = AUDIO_FORMAT_PCM_FLOAT;
++            break;
++       case kAudioEncodingPcm24bitPacked:
++            format = AUDIO_FORMAT_PCM_24_BIT_PACKED;
++            break;
++        default:
++            ALOGE("Invalid AudioEncoding %d", e);
++        }
++        return format;
++}
+ 
+ static size_t getAudioSampleSize(AudioEncoding e) {
+     switch (e) {
+-        case kAudioEncodingPcm16bit: return 2;
+-        case kAudioEncodingPcm8bit:  return 1;
+-        case kAudioEncodingPcmFloat: return 4;
++        case kAudioEncodingPcm16bit:
++        case kAudioEncodingPcm8bit:
++        case kAudioEncodingPcmFloat:
++        case kAudioEncodingPcm24bitPacked:
++            return audio_bytes_per_sample(getAudioFormat(e));
+         default: return 0;
+     }
+ }
+
+From 024fc35335f436b84be052c26a40ba1ba9122c92 Mon Sep 17 00:00:00 2001
+From: Mingming Yin <mingming@codeaurora.org>
+Date: Wed, 19 Aug 2015 20:32:33 -0700
+Subject: [PATCH 58/71] audio: add encoding support for linear PCM format
+
+- add encoding support for linear PCM format.
+
+[neobuddy89: Squashed commits.]
+
+Change-Id: I3f29e6c23a511a29c81e7083673f9138cb2e75f7
+---
+ media/libmedia/MediaProfiles.cpp              | 11 ++++++-
+ media/libmedia/include/media/MediaProfiles.h  |  1 +
+ media/libmedia/include/media/mediarecorder.h  |  1 +
+ .../StagefrightRecorder.cpp                   | 31 ++++++++++++-------
+ .../StagefrightRecorder.h                     |  2 +-
+ 5 files changed, 33 insertions(+), 13 deletions(-)
+
+diff --git a/media/libmedia/MediaProfiles.cpp b/media/libmedia/MediaProfiles.cpp
+index 85768bda1f..1bff0e6b6b 100644
+--- a/media/libmedia/MediaProfiles.cpp
++++ b/media/libmedia/MediaProfiles.cpp
+@@ -114,7 +114,8 @@ const MediaProfiles::NameToTagMap MediaProfiles::sAudioEncoderNameMap[] = {
+     {"aac",    AUDIO_ENCODER_AAC},
+     {"heaac",  AUDIO_ENCODER_HE_AAC},
+     {"aaceld", AUDIO_ENCODER_AAC_ELD},
+-    {"opus",   AUDIO_ENCODER_OPUS}
++    {"opus",   AUDIO_ENCODER_OPUS},
++    {"lpcm",  AUDIO_ENCODER_LPCM},
+ };
+ 
+ const MediaProfiles::NameToTagMap MediaProfiles::sFileFormatMap[] = {
+@@ -1146,6 +1147,7 @@ MediaProfiles::createDefaultCamcorderProfiles(MediaProfiles *profiles)
+ MediaProfiles::createDefaultAudioEncoders(MediaProfiles *profiles)
+ {
+     profiles->mAudioEncoders.add(createDefaultAmrNBEncoderCap());
++    profiles->mAudioEncoders.add(createDefaultLpcmEncoderCap());
+ }
+ 
+ /*static*/ void
+@@ -1180,6 +1182,13 @@ MediaProfiles::createDefaultAmrNBEncoderCap()
+         AUDIO_ENCODER_AMR_NB, 5525, 12200, 8000, 8000, 1, 1);
+ }
+ 
++/*static*/ MediaProfiles::AudioEncoderCap*
++MediaProfiles::createDefaultLpcmEncoderCap()
++{
++    return new MediaProfiles::AudioEncoderCap(
++        AUDIO_ENCODER_LPCM, 768000, 4608000, 8000, 48000, 1, 6);
++}
++
+ /*static*/ void
+ MediaProfiles::createDefaultImageEncodingQualityLevels(MediaProfiles *profiles)
+ {
+diff --git a/media/libmedia/include/media/MediaProfiles.h b/media/libmedia/include/media/MediaProfiles.h
+index e75b694d8a..687f5fc360 100644
+--- a/media/libmedia/include/media/MediaProfiles.h
++++ b/media/libmedia/include/media/MediaProfiles.h
+@@ -566,6 +566,7 @@ class MediaProfiles
+     static VideoEncoderCap* createDefaultH263VideoEncoderCap();
+     static VideoEncoderCap* createDefaultM4vVideoEncoderCap();
+     static AudioEncoderCap* createDefaultAmrNBEncoderCap();
++    static AudioEncoderCap* createDefaultLpcmEncoderCap();
+ 
+     static int findTagForName(const NameToTagMap *map, size_t nMappings, const char *name);
+ 
+diff --git a/media/libmedia/include/media/mediarecorder.h b/media/libmedia/include/media/mediarecorder.h
+index dd181440ea..806c27d439 100644
+--- a/media/libmedia/include/media/mediarecorder.h
++++ b/media/libmedia/include/media/mediarecorder.h
+@@ -97,6 +97,7 @@ enum audio_encoder {
+     AUDIO_ENCODER_AAC_ELD = 5,
+     AUDIO_ENCODER_VORBIS = 6,
+     AUDIO_ENCODER_OPUS = 7,
++    AUDIO_ENCODER_LPCM = 12,
+ 
+     AUDIO_ENCODER_LIST_END // must be the last - used to validate the audio encoder type
+ };
+diff --git a/media/libmediaplayerservice/StagefrightRecorder.cpp b/media/libmediaplayerservice/StagefrightRecorder.cpp
+index 6deb2bd083..e3cc1ac2cf 100644
+--- a/media/libmediaplayerservice/StagefrightRecorder.cpp
++++ b/media/libmediaplayerservice/StagefrightRecorder.cpp
+@@ -1427,14 +1427,14 @@ sp<MediaCodecSource> StagefrightRecorder::createAudioSource() {
+ 
+     sp<MediaCodecSource> audioEncoder =
+             MediaCodecSource::Create(mLooper, format, audioSource);
+-    sp<AudioSystem::AudioDeviceCallback> callback = mAudioDeviceCallback.promote();
+-    if (mDeviceCallbackEnabled && callback != 0) {
+-        audioSource->addAudioDeviceCallback(callback);
+-    }
+-    mAudioSourceNode = audioSource;
+-
+     if (audioEncoder == NULL) {
+         ALOGE("Failed to create audio encoder");
++    } else {
++        sp<AudioSystem::AudioDeviceCallback> callback = mAudioDeviceCallback.promote();
++        if (mDeviceCallbackEnabled && callback != 0) {
++            audioSource->addAudioDeviceCallback(callback);
++        }
++        mAudioSourceNode = audioSource;
+     }
+ 
+     return audioEncoder;
+@@ -1496,14 +1496,23 @@ status_t StagefrightRecorder::setupRawAudioRecording() {
+     }
+ 
+     sp<MediaCodecSource> audioEncoder = createAudioSource();
+-    if (audioEncoder == NULL) {
++    if (audioEncoder != NULL) {
++        CHECK(mWriter != 0);
++        mWriter->addSource(audioEncoder);
++        mAudioEncoderSource = audioEncoder;
++    } else if (audioEncoder == NULL && mAudioEncoder == AUDIO_ENCODER_LPCM) {
++        CHECK(mWriter != 0);
++        sp<MediaSource> src = setPCMRecording();
++        if (src == NULL) {
++            ALOGE("Recording source is null");
++            return UNKNOWN_ERROR;
++        }
++        mAudioSourceNode =  reinterpret_cast<AudioSource* > (src.get());
++        mWriter->addSource(src);
++    } else if (audioEncoder == NULL) {
+         return UNKNOWN_ERROR;
+     }
+ 
+-    CHECK(mWriter != 0);
+-    mWriter->addSource(audioEncoder);
+-    mAudioEncoderSource = audioEncoder;
+-
+     if (mMaxFileDurationUs != 0) {
+         mWriter->setMaxFileDuration(mMaxFileDurationUs);
+     }
+diff --git a/media/libmediaplayerservice/StagefrightRecorder.h b/media/libmediaplayerservice/StagefrightRecorder.h
+index d7785da3af..60fb51d857 100644
+--- a/media/libmediaplayerservice/StagefrightRecorder.h
++++ b/media/libmediaplayerservice/StagefrightRecorder.h
+@@ -258,7 +258,7 @@ struct StagefrightRecorder : public MediaRecorderBase {
+     void clipNumberOfAudioChannels();
+     void setDefaultProfileIfNecessary();
+     void setDefaultVideoEncoderIfNecessary();
+-
++    virtual sp<MediaSource> setPCMRecording() {return NULL;}
+ 
+     StagefrightRecorder(const StagefrightRecorder &);
+     StagefrightRecorder &operator=(const StagefrightRecorder &);
+
+From abd04c809418b32d91be7ba6663490684a56a11b Mon Sep 17 00:00:00 2001
+From: Uma Mehta <umamehta@codeaurora.org>
+Date: Tue, 8 May 2018 18:41:23 +0530
+Subject: [PATCH 59/71] media: Add changes to pick target specific media xml's
+
+Add changes to pick the right media xml's from vendor/etc
+of the target based on target specific system property
+
+CRs-Fixed: 2083569
+
+[neobuddy89: Squashed similar commits]
+
+Change-Id: I18d89821e765e8cd1b6003f99bc21dcd87a1458c
+---
+ media/libmedia/MediaProfiles.cpp              | 42 ++++++++++++
+ media/libstagefright/xmlparser/Android.bp     |  7 ++
+ .../xmlparser/MediaCodecsXmlParser.cpp        | 65 +++++++++++++++++--
+ 3 files changed, 109 insertions(+), 5 deletions(-)
+
+diff --git a/media/libmedia/MediaProfiles.cpp b/media/libmedia/MediaProfiles.cpp
+index 1bff0e6b6b..84f1592b96 100644
+--- a/media/libmedia/MediaProfiles.cpp
++++ b/media/libmedia/MediaProfiles.cpp
+@@ -952,6 +952,7 @@ void MediaProfiles::checkAndAddRequiredProfilesIfNecessary() {
+ /*static*/ MediaProfiles*
+ MediaProfiles::getInstance()
+ {
++    char platform[PROPERTY_VALUE_MAX] = {0};
+     ALOGV("getInstance");
+     Mutex::Autolock lock(sLock);
+     if (!sIsInitialized) {
+@@ -972,6 +973,47 @@ MediaProfiles::getInstance()
+                 sInstance = createInstanceFromXmlFile(xmlFile);
+             }
+         } else {
++                if (!strncmp(value, "/vendor/etc", strlen("/vendor/etc"))) {
++                    property_get("ro.board.platform", platform, NULL);
++                    if (!strcmp(platform, "msm8953")){
++                        if (property_get("vendor.media.target.version", value, "0") &&
++                            (atoi(value) == 1)){
++                            strlcpy(value, "/vendor/etc/media_profiles_8953_v1.xml",
++                                    PROPERTY_VALUE_MAX);
++                        } else {
++                            strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",
++                                    PROPERTY_VALUE_MAX);
++                        }
++                    } else if (!strcmp(platform, "sdm660")) {
++                        property_get("vendor.media.target.version", value, "0");
++                        if (atoi(value) == 1) {
++                            strlcpy(value, "/vendor/etc/media_profiles_sdm660_v1.xml",
++                                    PROPERTY_VALUE_MAX);
++                        } else {
++                            strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",
++                                    PROPERTY_VALUE_MAX);
++                        }
++                    } else if (!strcmp(platform, "bengal")) {
++                        property_get("vendor.sys.media.target.version", value, "0");
++                        if (atoi(value) == 3) {
++                            strlcpy(value, "/vendor/etc/media_profiles_khaje.xml",
++                                    PROPERTY_VALUE_MAX);
++                        } else if (atoi(value) == 2) {
++                            strlcpy(value, "/vendor/etc/media_profiles_scuba.xml",
++                                    PROPERTY_VALUE_MAX);
++                        } else {
++                            strlcpy(value, "/vendor/etc/media_profiles_vendor.xml",
++                                    PROPERTY_VALUE_MAX);
++                        }
++                    }
++                    char variant[PROPERTY_VALUE_MAX];
++                    if (property_get("ro.media.xml_variant.codecs", variant, NULL) > 0) {
++                        std::string xmlPath = std::string("/vendor/etc/media_profiles") +
++                                              std::string(variant) + std::string(".xml");
++                        strlcpy(value, xmlPath.c_str(), PROPERTY_VALUE_MAX);
++                        ALOGI("Profiles xml path: %s", value);
++                    }
++                }
+             sInstance = createInstanceFromXmlFile(value);
+         }
+         CHECK(sInstance != NULL);
+diff --git a/media/libstagefright/xmlparser/Android.bp b/media/libstagefright/xmlparser/Android.bp
+index afc873c4ee..523252e9f7 100644
+--- a/media/libstagefright/xmlparser/Android.bp
++++ b/media/libstagefright/xmlparser/Android.bp
+@@ -34,8 +34,15 @@ cc_library_shared {
+         "libexpat",
+         "liblog",
+         "libstagefright_omx_utils",
++        "libcutils"
+     ],
+ 
++    target: {
++        vendor: {
++            cflags: ["-D__ANDROID_VNDK__"],
++        },
++    },
++
+     cflags: [
+         "-Werror",
+         "-Wall",
+diff --git a/media/libstagefright/xmlparser/MediaCodecsXmlParser.cpp b/media/libstagefright/xmlparser/MediaCodecsXmlParser.cpp
+index 67c6102aff..690ba33574 100644
+--- a/media/libstagefright/xmlparser/MediaCodecsXmlParser.cpp
++++ b/media/libstagefright/xmlparser/MediaCodecsXmlParser.cpp
+@@ -14,7 +14,8 @@
+  * limitations under the License.
+  */
+ 
+-//#define LOG_NDEBUG 0
++#define LOG_NDEBUG 0
++#define PROP_VALUE_MAX 92
+ #define LOG_TAG "MediaCodecsXmlParser"
+ 
+ #include <media/stagefright/xmlparser/MediaCodecsXmlParser.h>
+@@ -36,6 +37,7 @@
+ #include <algorithm>
+ #include <cctype>
+ #include <string>
++#include <cutils/properties.h>
+ 
+ namespace android {
+ 
+@@ -117,6 +119,57 @@ status_t combineStatus(status_t a, status_t b) {
+     }
+ }
+ 
++std::string getVendorXmlPath(const std::string &path) {
++    std::string vendorPath;
++    std::string result = path;
++
++    if (!strncmp(path.c_str(), "/vendor/etc/media_codecs.xml",
++                    strlen("/vendor/etc/media_codecs.xml"))) {
++        vendorPath = "/vendor/etc/media_codecs_vendor";
++    } else if (!strncmp(path.c_str(), "/vendor/etc/media_codecs_performance.xml",
++                    strlen("/vendor/etc/media_codecs_performance.xml"))) {
++        vendorPath = "/vendor/etc/media_codecs_performance";
++    }
++
++    if (!vendorPath.empty()) {
++        if (fileExists(vendorPath + std::string(".xml"))) {
++            char version[PROP_VALUE_MAX] = {0};
++            result = vendorPath + std::string(".xml");
++#ifdef __ANDROID_VNDK__
++            property_get("vendor.media.target.version", version, "0");
++#else
++            property_get("vendor.sys.media.target.version", version, "0");
++#endif
++            if (atoi(version) > 0) {
++                std::string versionedXml = vendorPath + std::string("_v") +
++                                 std::string(version) + std::string(".xml");
++                if(fileExists(versionedXml)) {
++                    result = versionedXml;
++                }
++            }
++        }
++        ALOGI("getVendorXmlPath (%s)", result.c_str());
++    }
++
++    // Choose different xmls based on system (if needed)
++    if (!android::base::GetProperty("ro.media.xml_variant.codecs", "").empty()){
++        const std::vector<std::string> &xmlFiles = MediaCodecsXmlParser::getDefaultXmlNames();
++        for (const std::string &xmlName : xmlFiles) {
++            vendorPath = "/vendor/etc/" + xmlName;
++            if (!strncmp(path.c_str(), vendorPath.c_str(), vendorPath.size())) {
++                vendorPath = vendorPath.substr(0,vendorPath.size()-4) + "_vendor.xml";
++                if (fileExists(vendorPath)) {
++                    result = vendorPath;
++                }
++                ALOGI("getVendorXmlPath %s", result.c_str());
++                break;
++            }
++        }
++    }
++
++    return result;
++}
++
+ MediaCodecsXmlParser::StringSet parseCommaSeparatedStringSet(const char *s) {
+     MediaCodecsXmlParser::StringSet result;
+     for (const char *ptr = s ? : ""; *ptr; ) {
+@@ -442,20 +495,22 @@ status_t MediaCodecsXmlParser::Impl::parseXmlFilesInSearchDirs(
+ 
+ status_t MediaCodecsXmlParser::Impl::parseXmlPath(const std::string &path) {
+     std::lock_guard<std::mutex> guard(mLock);
+-    if (!fileExists(path)) {
+-        ALOGV("Cannot find %s", path.c_str());
++    std::string vendorPath = getVendorXmlPath(path);
++
++    if (!fileExists(vendorPath)) {
++        ALOGV("Cannot find %s", vendorPath.c_str());
+         mParsingStatus = combineStatus(mParsingStatus, NAME_NOT_FOUND);
+         return NAME_NOT_FOUND;
+     }
+ 
+     // save state (even though we should always be at toplevel here)
+     State::RestorePoint rp = mState.createRestorePoint();
+-    Parser parser(&mState, path);
++    Parser parser(&mState, vendorPath);
+     parser.parseXmlFile();
+     mState.restore(rp);
+ 
+     if (parser.getStatus() != OK) {
+-        ALOGD("parseXmlPath(%s) failed with %s", path.c_str(), asString(parser.getStatus()));
++        ALOGD("parseXmlPath(%s) failed with %s", vendorPath.c_str(), asString(parser.getStatus()));
+     }
+     mParsingStatus = combineStatus(mParsingStatus, parser.getStatus());
+     return parser.getStatus();
+
+From f0efff9b35d68f9d7c2c44de9d7175d4be97b5b1 Mon Sep 17 00:00:00 2001
+From: Manikanta Kanamarlapudi <kmanikan@codeaurora.org>
+Date: Wed, 30 Aug 2017 12:33:59 +0530
+Subject: [PATCH 60/71] libstagefright: Free buffers on observer died
+
+If observer died while allocating buffers, component remains
+in loaded state. In cleanup, it checks for idle state to
+free the allocated buffers which leads to memory leak.
+Hence explicitly calling free buffers to avoid memory leak.
+
+Change-Id: Ia8bd21f161473a18be30ec0fd7ad84b9e8fd83ee
+---
+ media/libstagefright/omx/OMXNodeInstance.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/media/libstagefright/omx/OMXNodeInstance.cpp b/media/libstagefright/omx/OMXNodeInstance.cpp
+index bebd5161d7..eac17cd0ab 100644
+--- a/media/libstagefright/omx/OMXNodeInstance.cpp
++++ b/media/libstagefright/omx/OMXNodeInstance.cpp
+@@ -582,6 +582,9 @@ status_t OMXNodeInstance::freeNode() {
+ 
+     Mutex::Autolock _l(mLock);
+ 
++    if (mActiveBuffers.size() > 0) {
++        freeActiveBuffers();
++    }
+     status_t err = mOwner->freeNode(this);
+ 
+     mDispatcher.clear();
+
+From c71083c973ef6eb9d83a934353680795ce9fbd74 Mon Sep 17 00:00:00 2001
+From: Priyanka Gujjula <pgujjula@codeaurora.org>
+Date: Mon, 25 Mar 2019 21:11:18 +0530
+Subject: [PATCH 61/71] libstagefright: Fix memory leak due to lock timeout
+
+Memory leak has occurred when freeBuffer tries to
+acquire the lock which is acquired by freeNode and
+not released. Due to lock timeout in freeBuffer,
+buffers are never released.
+
+CRs-Fixed: 2423296
+Change-Id: Idae512bdc9c9704f3bb01bd5f23cb97a30542881
+---
+ media/libstagefright/omx/OMXNodeInstance.cpp | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/media/libstagefright/omx/OMXNodeInstance.cpp b/media/libstagefright/omx/OMXNodeInstance.cpp
+index eac17cd0ab..9a932a48c2 100644
+--- a/media/libstagefright/omx/OMXNodeInstance.cpp
++++ b/media/libstagefright/omx/OMXNodeInstance.cpp
+@@ -580,11 +580,12 @@ status_t OMXNodeInstance::freeNode() {
+             break;
+     }
+ 
+-    Mutex::Autolock _l(mLock);
+-
+     if (mActiveBuffers.size() > 0) {
+         freeActiveBuffers();
+     }
++
++    Mutex::Autolock _l(mLock);
++
+     status_t err = mOwner->freeNode(this);
+ 
+     mDispatcher.clear();
+
+From 48cde25a86da9a2c7eeb4e01d3021aea58f23cd9 Mon Sep 17 00:00:00 2001
+From: gmanam <quic_gmanam@quicinc.com>
+Date: Wed, 20 Jul 2022 11:57:42 +0530
+Subject: [PATCH 62/71] converter: Support 24bit converter
+
+Add support to convert 24bit pcm to other
+pcm formats
+
+Bug: 228576052
+Change-Id: I0204e56144440e61752aaff7c644b14cdfbb1040
+---
+ media/libstagefright/DataConverter.cpp | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/media/libstagefright/DataConverter.cpp b/media/libstagefright/DataConverter.cpp
+index fb714ea2bd..85fda6803a 100644
+--- a/media/libstagefright/DataConverter.cpp
++++ b/media/libstagefright/DataConverter.cpp
+@@ -99,6 +99,9 @@ static audio_format_t getAudioFormat(AudioEncoding e) {
+        case kAudioEncodingPcm24bitPacked:
+             format = AUDIO_FORMAT_PCM_24_BIT_PACKED;
+             break;
++       case kAudioEncodingPcm32bit:
++            format = AUDIO_FORMAT_PCM_32_BIT;
++            break;
+         default:
+             ALOGE("Invalid AudioEncoding %d", e);
+         }
+@@ -111,6 +114,7 @@ static size_t getAudioSampleSize(AudioEncoding e) {
+         case kAudioEncodingPcm8bit:
+         case kAudioEncodingPcmFloat:
+         case kAudioEncodingPcm24bitPacked:
++        case kAudioEncodingPcm32bit:
+             return audio_bytes_per_sample(getAudioFormat(e));
+         default: return 0;
+     }
+@@ -141,7 +145,15 @@ status_t AudioConverter::safeConvert(const sp<MediaCodecBuffer> &src, sp<MediaCo
+     } else if (mTo == kAudioEncodingPcmFloat && mFrom == kAudioEncodingPcm16bit) {
+         memcpy_to_float_from_i16((float*)tgt->base(), (const int16_t*)src->data(), src->size() / 2);
+     } else {
+-        return INVALID_OPERATION;
++        audio_format_t srcFormat = getAudioFormat(mFrom);
++        audio_format_t dstFormat = getAudioFormat(mTo);
++
++        if ((srcFormat == AUDIO_FORMAT_INVALID) || (dstFormat == AUDIO_FORMAT_INVALID))
++            return INVALID_OPERATION;
++
++        size_t frames = src->size() / audio_bytes_per_sample(srcFormat);
++        memcpy_by_audio_format((void*)tgt->base(), dstFormat, (void*)src->data(),
++                srcFormat, frames);
+     }
+     return OK;
+ }
+
+From d8a49efcd0fbde02cf261fea27dc5a292b5eacc3 Mon Sep 17 00:00:00 2001
+From: Karthikeyan Periasamy <kperiasa@codeaurora.org>
+Date: Wed, 25 Jan 2017 14:53:12 -0800
+Subject: [PATCH 63/71] libstagefright: Check trackMeta for NULL
+
+getTrackMetaData will return NULL for failure. If we pass the NULL,
+we observe undefined behavior of mediaserver application .
+
+Check trackMeta and go to next index if it is NULL
+
+[neobuddy89]: Adapted for AOSP
+
+CRs-Fixed: 1115425
+Change-Id: I55a73cb0f327b6af31d30ed1b3d27c83578762d3
+---
+ .../StagefrightMetadataRetriever.cpp                      | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/media/libmediaplayerservice/StagefrightMetadataRetriever.cpp b/media/libmediaplayerservice/StagefrightMetadataRetriever.cpp
+index b3f7f25ff6..67b3dd26e1 100644
+--- a/media/libmediaplayerservice/StagefrightMetadataRetriever.cpp
++++ b/media/libmediaplayerservice/StagefrightMetadataRetriever.cpp
+@@ -353,6 +353,10 @@ sp<IMemory> StagefrightMetadataRetriever::getFrameInternal(
+             continue;
+         }
+ 
++        if (meta == NULL) {
++            continue;
++        }
++
+         const char *mime;
+         if (meta->findCString(kKeyMIMEType, &mime) && !strncasecmp(mime, "video/", 6)) {
+             break;
+@@ -618,6 +622,10 @@ void StagefrightMetadataRetriever::parseMetaData() {
+             continue;
+         }
+ 
++        if (trackMeta == NULL) {
++            continue;
++        }
++
+         int64_t durationUs;
+         if (trackMeta->findInt64(kKeyDuration, &durationUs)) {
+             if (durationUs > maxDurationUs) {
+
+From 2fc31bfecdb2bf25d29050e0e40eb79bffc855f5 Mon Sep 17 00:00:00 2001
+From: Arun Johnson <arunjohnson@google.com>
+Date: Fri, 5 Aug 2022 23:40:27 +0000
+Subject: [PATCH 64/71] Changing max SampleRate limits for raw audio decoder
+
+bug: 240984267
+Google: 2180395
+Change-Id: Ifec0eca96dc45583340843d3460bb33f8b502a96
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/libstagefright/data/media_codecs_sw.xml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/media/libstagefright/data/media_codecs_sw.xml b/media/libstagefright/data/media_codecs_sw.xml
+index d7e2d18146..ec75e79a35 100644
+--- a/media/libstagefright/data/media_codecs_sw.xml
++++ b/media/libstagefright/data/media_codecs_sw.xml
+@@ -73,7 +73,7 @@
+         <MediaCodec name="c2.android.raw.decoder" type="audio/raw">
+             <Alias name="OMX.google.raw.decoder" />
+             <Limit name="channel-count" max="8" />
+-            <Limit name="sample-rate" ranges="8000-96000" />
++            <Limit name="sample-rate" ranges="8000-192000" />
+             <Limit name="bitrate" range="1-10000000" />
+         </MediaCodec>
+         <MediaCodec name="c2.android.flac.decoder" type="audio/flac">
+
+From 443964a5c3a886d179582671ba266c97c69f901c Mon Sep 17 00:00:00 2001
+From: Hongguang <hgchen@google.com>
+Date: Wed, 20 Jul 2022 22:56:06 -0700
+Subject: [PATCH 65/71] Set dataspace to native window
+
+Following ag/17264070, codec2 should also set the dataspace to native
+window. That will allow the driver to query the consumer-requested
+dataspace and configure the bufferqueue appropriately prior to rendering.
+
+Bug: 232748666
+Test: atest android.media.codec.cts.EncodeDecodeTest
+Test: atest android.media.codec.cts.DecodeEditEncodeTest
+Change-Id: I412639b32ac371beee14e48b7b0949dd87a7439f
+Signed-off-by: strwbrry143 <alexfinhart@gmail.com>
+---
+ media/codec2/sfplugin/CCodecBufferChannel.cpp |  4 ++--
+ media/codec2/sfplugin/Codec2Buffer.cpp        | 16 +++++++++++++++-
+ media/codec2/sfplugin/Codec2Buffer.h          |  6 ++++--
+ 3 files changed, 21 insertions(+), 5 deletions(-)
+
+diff --git a/media/codec2/sfplugin/CCodecBufferChannel.cpp b/media/codec2/sfplugin/CCodecBufferChannel.cpp
+index 046abf2871..d7d9cfda9f 100644
+--- a/media/codec2/sfplugin/CCodecBufferChannel.cpp
++++ b/media/codec2/sfplugin/CCodecBufferChannel.cpp
+@@ -960,9 +960,9 @@ status_t CCodecBufferChannel::renderOutputBuffer(
+                     hdrDynamicInfo->m.data + hdrDynamicInfo->flexCount());
+         }
+         qbi.setHdrMetadata(hdr);
+-
+-        SetHdrMetadataToGralloc4Handle(hdrStaticInfo, hdrDynamicInfo, block.handle());
+     }
++    SetMetadataToGralloc4Handle(dataSpace, hdrStaticInfo, hdrDynamicInfo, block.handle());
++
+     // we don't have dirty regions
+     qbi.setSurfaceDamage(Region::INVALID_REGION);
+     android::IGraphicBufferProducer::QueueBufferOutput qbo;
+diff --git a/media/codec2/sfplugin/Codec2Buffer.cpp b/media/codec2/sfplugin/Codec2Buffer.cpp
+index 318e110724..c649c1fd00 100644
+--- a/media/codec2/sfplugin/Codec2Buffer.cpp
++++ b/media/codec2/sfplugin/Codec2Buffer.cpp
+@@ -997,9 +997,11 @@ native_handle_t *EncryptedLinearBlockBuffer::handle() const {
+ }
+ 
+ using ::aidl::android::hardware::graphics::common::Cta861_3;
++using ::aidl::android::hardware::graphics::common::Dataspace;
+ using ::aidl::android::hardware::graphics::common::Smpte2086;
+ 
+ using ::android::gralloc4::MetadataType_Cta861_3;
++using ::android::gralloc4::MetadataType_Dataspace;
+ using ::android::gralloc4::MetadataType_Smpte2086;
+ using ::android::gralloc4::MetadataType_Smpte2094_40;
+ 
+@@ -1155,7 +1157,8 @@ c2_status_t GetHdrMetadataFromGralloc4Handle(
+     return err;
+ }
+ 
+-c2_status_t SetHdrMetadataToGralloc4Handle(
++c2_status_t SetMetadataToGralloc4Handle(
++        android_dataspace_t dataSpace,
+         const std::shared_ptr<const C2StreamHdrStaticMetadataInfo::output> &staticInfo,
+         const std::shared_ptr<const C2StreamHdrDynamicMetadataInfo::output> &dynamicInfo,
+         const C2Handle *const handle) {
+@@ -1166,6 +1169,17 @@ c2_status_t SetHdrMetadataToGralloc4Handle(
+         // Gralloc4 not supported; nothing to do
+         return err;
+     }
++    {
++        hidl_vec<uint8_t> metadata;
++        if (gralloc4::encodeDataspace(static_cast<Dataspace>(dataSpace), &metadata) == OK) {
++            Return<Error4> ret = mapper->set(buffer.get(), MetadataType_Dataspace, metadata);
++            if (!ret.isOk()) {
++                err = C2_REFUSED;
++            } else if (ret != Error4::NONE) {
++                err = C2_CORRUPTED;
++            }
++        }
++    }
+     if (staticInfo && *staticInfo) {
+         ALOGV("Setting static HDR info as gralloc4 metadata");
+         std::optional<Smpte2086> smpte2086 = Smpte2086{
+diff --git a/media/codec2/sfplugin/Codec2Buffer.h b/media/codec2/sfplugin/Codec2Buffer.h
+index b02b042ea4..b73acab69c 100644
+--- a/media/codec2/sfplugin/Codec2Buffer.h
++++ b/media/codec2/sfplugin/Codec2Buffer.h
+@@ -410,14 +410,16 @@ c2_status_t GetHdrMetadataFromGralloc4Handle(
+         std::shared_ptr<C2StreamHdrDynamicMetadataInfo::input> *dynamicInfo);
+ 
+ /**
+- * Set HDR metadata to Gralloc4 handle.
++ * Set metadata to Gralloc4 handle.
+  *
++ * \param[in]   dataSpace   Dataspace to set.
+  * \param[in]   staticInfo  HDR static info to set. Ignored if null or invalid.
+  * \param[in]   dynamicInfo HDR dynamic info to set. Ignored if null or invalid.
+  * \param[out]  handle      handle of the allocation.
+  * \return C2_OK if successful
+  */
+-c2_status_t SetHdrMetadataToGralloc4Handle(
++c2_status_t SetMetadataToGralloc4Handle(
++        const android_dataspace_t dataSpace,
+         const std::shared_ptr<const C2StreamHdrStaticMetadataInfo::output> &staticInfo,
+         const std::shared_ptr<const C2StreamHdrDynamicMetadataInfo::output> &dynamicInfo,
+         const C2Handle *const handle);
+
+From 9d54cb761699ffa66c4a1a749d74399f52b50d7e Mon Sep 17 00:00:00 2001
+From: Arun Johnson <arunjohnson@google.com>
+Date: Mon, 18 Jul 2022 19:16:04 +0000
+Subject: [PATCH 66/71] Adding null check for IResourceManagerClient in dump()
+
+bug: 191613308
+Change-Id: I1694f2d1c13163a9b8162630377de71303bc517f
+rfp: 1 pending
+Signed-off-by: strwbrry143 <alexfinhart@gmail.com>
+---
+ services/mediaresourcemanager/ResourceManagerService.cpp | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/services/mediaresourcemanager/ResourceManagerService.cpp b/services/mediaresourcemanager/ResourceManagerService.cpp
+index b4610bc71e..4d18876bfc 100644
+--- a/services/mediaresourcemanager/ResourceManagerService.cpp
++++ b/services/mediaresourcemanager/ResourceManagerService.cpp
+@@ -271,10 +271,9 @@ binder_status_t ResourceManagerService::dump(int fd, const char** /*args*/, uint
+             snprintf(buffer, SIZE, "        Id: %lld\n", (long long)infos[j].clientId);
+             result.append(buffer);
+ 
+-            std::string clientName;
+-            Status status = infos[j].client->getName(&clientName);
+-            if (!status.isOk()) {
+-                clientName = "<unknown client>";
++            std::string clientName = "<unknown client>";
++            if (infos[j].client != nullptr) {
++                Status status = infos[j].client->getName(&clientName);
+             }
+             snprintf(buffer, SIZE, "        Name: %s\n", clientName.c_str());
+             result.append(buffer);
+
+From 121ee6f3abbde92851869150f6f135eb0309c4d3 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Bertil=20=C3=85kesson?= <bertil.akesson@sony.com>
+Date: Thu, 14 Jul 2022 16:39:36 +0200
+Subject: [PATCH 67/71] Do not report error for playback rate/pitch of 1.0
+
+The operation is not mandatory to implement in HAL.
+Silently swallow the error from the HAL. For other values
+of speed and pitch it should fail as it isn't supported by
+the HAL.
+If called from NuPlayer with other values for speed and pitch,
+the track will recreated as non offloaded.
+
+Bug: 232426500
+Test: Use test application in buganizer
+Change-Id: Ifc377148f4594e730f9c37426e00c033026c068d
+Signed-off-by: minaripenguin <alexfinhart@gmail.com>
+---
+ media/libaudioclient/AudioTrack.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/media/libaudioclient/AudioTrack.cpp b/media/libaudioclient/AudioTrack.cpp
+index 6ab8339eae..597f7ff876 100644
+--- a/media/libaudioclient/AudioTrack.cpp
++++ b/media/libaudioclient/AudioTrack.cpp
+@@ -1398,6 +1398,10 @@ status_t AudioTrack::setPlaybackRate(const AudioPlaybackRate &playbackRate)
+                         legacy2aidl_audio_playback_rate_t_AudioPlaybackRate(playbackRate))));
+         if (status == NO_ERROR) {
+             mPlaybackRate = playbackRate;
++        } else if (status == INVALID_OPERATION
++                && playbackRate.mSpeed == 1.0f && mPlaybackRate.mPitch == 1.0f) {
++            mPlaybackRate = playbackRate;
++            return NO_ERROR;
+         }
+         return status;
+     }
+
+From 512a152b75c5aa3738852fc4c16e5b07d4a45a85 Mon Sep 17 00:00:00 2001
+From: George Burgess IV <gbiv@google.com>
+Date: Mon, 11 Jul 2022 21:29:27 -0700
+Subject: [PATCH 68/71] VideoDecTest: stop managing memory manually
+
+We can get the same effect as `malloc`'ing here by using `std::vector`.
+Further, with `std::vector`, we don't have theoretical issues with
+`ASSERT_EQ(_, nullptr)` failing, which would lead to us potentially
+leaking one of the allocations here.
+
+Bug: 206470603
+Test: TreeHugger
+Change-Id: I7568317c74f6403da3d0755c97b3fd418b9d7cdb
+Signed-off-by: minaripenguin <alexfinhart@gmail.com>
+---
+ .../video/VtsHalMediaC2V1_0TargetVideoDecTest.cpp  | 14 ++++++--------
+ 1 file changed, 6 insertions(+), 8 deletions(-)
+
+diff --git a/media/codec2/hidl/1.0/vts/functional/video/VtsHalMediaC2V1_0TargetVideoDecTest.cpp b/media/codec2/hidl/1.0/vts/functional/video/VtsHalMediaC2V1_0TargetVideoDecTest.cpp
+index 67873fa16b..117d9ca7a4 100644
+--- a/media/codec2/hidl/1.0/vts/functional/video/VtsHalMediaC2V1_0TargetVideoDecTest.cpp
++++ b/media/codec2/hidl/1.0/vts/functional/video/VtsHalMediaC2V1_0TargetVideoDecTest.cpp
+@@ -214,10 +214,8 @@ class Codec2VideoDecHidlTestBase : public ::testing::Test {
+             calc_md5_cksum(uPlane, uvStride, cropWidth / 2, cropHeight / 2, au1_u_chksum);
+             calc_md5_cksum(vPlane, uvStride, cropWidth / 2, cropHeight / 2, au1_v_chksum);
+         } else if (bitDepth == 8 && layoutType == C2PlanarLayout::TYPE_YUV && colInc == 2) {
+-            uint8_t* cbPlane = (uint8_t*)malloc(cropWidth * cropHeight / 4);
+-            uint8_t* crPlane = (uint8_t*)malloc(cropWidth * cropHeight / 4);
+-            ASSERT_NE(cbPlane, nullptr);
+-            ASSERT_NE(crPlane, nullptr);
++            std::vector<uint8_t> cbPlane(cropWidth * cropHeight / 4);
++            std::vector<uint8_t> crPlane(cropWidth * cropHeight / 4);
+             size_t count = 0;
+             for (size_t k = 0; k < (cropHeight / 2); k++) {
+                 for (size_t l = 0; l < (cropWidth); l = l + 2) {
+@@ -227,10 +225,10 @@ class Codec2VideoDecHidlTestBase : public ::testing::Test {
+                 }
+             }
+             calc_md5_cksum(yPlane, yStride, cropWidth, cropHeight, au1_y_chksum);
+-            calc_md5_cksum(cbPlane, cropWidth / 2, cropWidth / 2, cropHeight / 2, au1_u_chksum);
+-            calc_md5_cksum(crPlane, cropWidth / 2, cropWidth / 2, cropHeight / 2, au1_v_chksum);
+-            free(cbPlane);
+-            free(crPlane);
++            calc_md5_cksum(cbPlane.data(), cropWidth / 2, cropWidth / 2, cropHeight / 2,
++                           au1_u_chksum);
++            calc_md5_cksum(crPlane.data(), cropWidth / 2, cropWidth / 2, cropHeight / 2,
++                           au1_v_chksum);
+         } else {
+             mMd5Enable = false;
+             ALOGV("Disabling MD5 chksm flag");
+
+From 94fa47b896878989b3873c76af2412caca3cf536 Mon Sep 17 00:00:00 2001
+From: Brandon Chen <brandon.chen@imgtec.com>
+Date: Thu, 14 Jul 2022 08:10:19 +0800
+Subject: [PATCH 69/71] Use highp to avoid float overflow in expression
+
+float D = C * (A / B) could be relaxed to
+float D =  (C * A) * (1 / B).
+
+This is qualified in GLES Spec at chapter Evaluation of Expressions.
+Note that "C * A" could exceed the maximal value of FP16.
+Use highp float to keep the correct value.
+
+Bug: 237997490
+
+Test: Launch gallery and check thumbnail of video
+
+Signed-off-by: Brandon Chen <brandon.chen@imgtec.com>
+Change-Id: Icfa355ecb2501267b00a9615b36fb70606864b94
+Signed-off-by: minaripenguin <alexfinhart@gmail.com>
+---
+ media/libstagefright/renderfright/gl/ProgramCache.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/media/libstagefright/renderfright/gl/ProgramCache.cpp b/media/libstagefright/renderfright/gl/ProgramCache.cpp
+index 3ae35ec4e9..1a3b4e751b 100644
+--- a/media/libstagefright/renderfright/gl/ProgramCache.cpp
++++ b/media/libstagefright/renderfright/gl/ProgramCache.cpp
+@@ -374,7 +374,11 @@ void ProgramCache::generateToneMappingProcess(Formatter& fs, const Key& needs) {
+                                     return color * slope;
+                                 } else if (nits < x1) {
+                                     // scale [x0, x1] to [y0, y1] linearly
+-                                    float slope = (y1 - y0) / (x1 - x0);
++                                    // Use highp since some compilers may do this
++                                    // operation as reciprocal multiplication with
++                                    // re-association that could exceed the range
++                                    // of mediump float.
++                                    highp float slope = (y1 - y0) / (x1 - x0);
+                                     nits = y0 + (nits - x0) * slope;
+                                 } else if (nits < x2) {
+                                     // scale [x1, x2] to [y1, y2] using Hermite interp
+
+From f461731444d2676fc1075fc3c739bea3d62fe8dd Mon Sep 17 00:00:00 2001
+From: Chris Gross <chrisgross@google.com>
+Date: Fri, 5 Mar 2021 21:30:11 +0000
+Subject: [PATCH 70/71] Add NULL check to popFromStashAndRegister.
+
+Change-Id: I423a8caec147f84f531d3f2e5f74970821e0ab4e
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/codec2/sfplugin/CCodecBuffers.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/media/codec2/sfplugin/CCodecBuffers.cpp b/media/codec2/sfplugin/CCodecBuffers.cpp
+index 0f4a8d82a3..e71316921d 100644
+--- a/media/codec2/sfplugin/CCodecBuffers.cpp
++++ b/media/codec2/sfplugin/CCodecBuffers.cpp
+@@ -341,7 +341,7 @@ OutputBuffers::BufferAction OutputBuffers::popFromStashAndRegister(
+     *c2Buffer = entry.buffer;
+     sp<AMessage> outputFormat = entry.format;
+ 
+-    if (entry.notify && mFormat != outputFormat) {
++    if (entry.notify && outputFormat && mFormat != outputFormat) {
+         updateSkipCutBuffer(outputFormat);
+         // Trigger image data processing to the new format
+         mLastImageData.clear();
+
+From 3778ef21a655cf1347f82e0029a96039a943a967 Mon Sep 17 00:00:00 2001
+From: Milos Ratkovic <milosr@gmail.com>
+Date: Mon, 8 Jan 2018 00:23:58 +0100
+Subject: [PATCH 71/71] libstagefright: use 64-bit usage for
+ native_window_set_usage
+
+Since Android 8.1 native_window_set_usage has changed to use 64-bit int
+for the usage parameter. Use of 32-bit signed integer as parameter does
+implicit conversion which may cause unexpected behaviour.
+
+This change fixes errors like:
+GrallocMapperPassthrough: buffer descriptor with invalid usage bits 0xffffffff00002000
+GraphicBufferAllocator: Failed to allocate (1920 x 1080) layerCount 1 format 2141391875 usage ffffffff80402900: 3
+
+Original 64-bit usage commit:
+https://android.googlesource.com/platform/frameworks/native/+/cb496acbe593326e8d5d563847067d02b2df40ec
+
+Change-Id: Ic38cbb41997df9f5a77b276ba77e90a59cb5ae8d
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ media/libstagefright/SurfaceUtils.cpp | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/media/libstagefright/SurfaceUtils.cpp b/media/libstagefright/SurfaceUtils.cpp
+index 1f569efe0e..66e748e1fb 100644
+--- a/media/libstagefright/SurfaceUtils.cpp
++++ b/media/libstagefright/SurfaceUtils.cpp
+@@ -111,8 +111,9 @@ status_t setNativeWindowSizeFormatAndUsage(
+         }
+     }
+ 
+-    int finalUsage = usage | consumerUsage;
+-    ALOGV("gralloc usage: %#x(producer) + %#x(consumer) = %#x", usage, consumerUsage, finalUsage);
++    uint64_t finalUsage = (usage | consumerUsage) & 0xffffffffLL;
++    ALOGV("gralloc usage: %#x(producer) + %#x(consumer) = %#" PRIx64,
++            usage, consumerUsage, finalUsage);
+     err = native_window_set_usage(nativeWindow, finalUsage);
+     if (err != NO_ERROR) {
+         ALOGE("native_window_set_usage failed: %s (%d)", strerror(-err), -err);
+@@ -126,7 +127,7 @@ status_t setNativeWindowSizeFormatAndUsage(
+         return err;
+     }
+ 
+-    ALOGD("set up nativeWindow %p for %dx%d, color %#x, rotation %d, usage %#x",
++    ALOGD("set up nativeWindow %p for %dx%d, color %#x, rotation %d, usage %#" PRIx64,
+             nativeWindow, width, height, format, rotation, finalUsage);
+     return NO_ERROR;
+ }

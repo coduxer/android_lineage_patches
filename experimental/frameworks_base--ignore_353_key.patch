@@ -1,0 +1,16 @@
+diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+index 4cc38ccb3971..3d4745f07407 100644
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -3132,6 +3132,11 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+                     + repeatCount + " keyguardOn=" + keyguardOn + " canceled=" + canceled);
+         }
+ 
++
++        if (keyCode == 353) {
++            return key_consumed;
++        }
++
+         if (mKeyCombinationManager.isKeyConsumed(event)) {
+             return key_consumed;
+         }

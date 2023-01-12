@@ -1,0 +1,88 @@
+From d54e94a6ec5b720e25f91808bda2ec27f125ccd2 Mon Sep 17 00:00:00 2001
+From: Rishawn <70256146+Stealth1226@users.noreply.github.com>
+Date: Mon, 10 Jan 2022 09:47:15 +0530
+Subject: [PATCH] base: Allow disabling ripple effect on unlock [1/2]
+
+neobuddy89:
+* Reverse logic. Enabled animation by default.
+
+ArrowOS:
+* Add keys into backup and validators.
+
+Change-Id: Idecaa59547159d0a2b0ecdb55a207377bd466710
+---
+ core/java/android/provider/Settings.java                 | 6 ++++++
+ .../android/provider/settings/backup/SystemSettings.java | 1 +
+ .../settings/validators/SystemSettingsValidators.java    | 1 +
+ .../com/android/systemui/biometrics/AuthRippleView.kt    | 9 ++++++++-
+ 4 files changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
+index 06545f22e2fe..cdde874845f6 100644
+--- a/core/java/android/provider/Settings.java
++++ b/core/java/android/provider/Settings.java
+@@ -5506,6 +5506,12 @@ public final class Settings {
+         @Readable
+         public static final String VOLUME_KEY_CURSOR_CONTROL = "volume_key_cursor_control";
+ 
++        /**
++         * Whether to enable the ripple animation on fingerprint unlock
++         * @hide
++         */
++        public static final String ENABLE_RIPPLE_EFFECT = "enable_ripple_effect";
++
+         /**
+          * IMPORTANT: If you add a new public settings you also have to add it to
+          * PUBLIC_SETTINGS below. If the new setting is hidden you have to add
+diff --git a/packages/SettingsProvider/src/android/provider/settings/backup/SystemSettings.java b/packages/SettingsProvider/src/android/provider/settings/backup/SystemSettings.java
+index a6bfc408be7e..0559cd907b00 100644
+--- a/packages/SettingsProvider/src/android/provider/settings/backup/SystemSettings.java
++++ b/packages/SettingsProvider/src/android/provider/settings/backup/SystemSettings.java
+@@ -89,5 +89,6 @@ public class SystemSettings {
+         Settings.System.DISPLAY_COLOR_MODE,
+         Settings.System.ALARM_ALERT,
+         Settings.System.NOTIFICATION_LIGHT_PULSE,
++        Settings.System.ENABLE_RIPPLE_EFFECT,
+     };
+ }
+diff --git a/packages/SettingsProvider/src/android/provider/settings/validators/SystemSettingsValidators.java b/packages/SettingsProvider/src/android/provider/settings/validators/SystemSettingsValidators.java
+index 310561e5b819..486660935cf3 100644
+--- a/packages/SettingsProvider/src/android/provider/settings/validators/SystemSettingsValidators.java
++++ b/packages/SettingsProvider/src/android/provider/settings/validators/SystemSettingsValidators.java
+@@ -208,5 +208,6 @@ public class SystemSettingsValidators {
+         VALIDATORS.put(System.SHOW_BATTERY_PERCENT, BOOLEAN_VALIDATOR);
+         VALIDATORS.put(System.NOTIFICATION_LIGHT_PULSE, BOOLEAN_VALIDATOR);
+         VALIDATORS.put(System.ACCELEROMETER_ROTATION_ANGLES, NON_NEGATIVE_INTEGER_VALIDATOR);
++        VALIDATORS.put(System.ENABLE_RIPPLE_EFFECT, BOOLEAN_VALIDATOR);
+     }
+ }
+diff --git a/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt b/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt
+index 378ae14f0327..e6381f7a6c77 100644
+--- a/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt
++++ b/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt
+@@ -24,6 +24,8 @@ import android.graphics.Canvas
+ import android.graphics.Color
+ import android.graphics.Paint
+ import android.graphics.PointF
++import android.os.UserHandle
++import android.provider.Settings
+ import android.util.AttributeSet
+ import android.view.View
+ import android.view.animation.PathInterpolator
+@@ -263,7 +265,12 @@ class AuthRippleView(context: Context?, attrs: AttributeSet?) : View(context, at
+      * Ripple that bursts outwards from the position of the sensor to the edges of the screen
+      */
+     fun startUnlockedRipple(onAnimationEnd: Runnable?) {
+-        if (unlockedRippleInProgress) {
++        val enableRipple = Settings.System.getIntForUser(
++            context.contentResolver,
++            Settings.System.ENABLE_RIPPLE_EFFECT, 1,
++            UserHandle.USER_CURRENT) == 1
++
++        if (unlockedRippleInProgress || !enableRipple) {
+             return // Ignore if ripple effect is already playing
+         }
+ 
+-- 
+2.39.0
+

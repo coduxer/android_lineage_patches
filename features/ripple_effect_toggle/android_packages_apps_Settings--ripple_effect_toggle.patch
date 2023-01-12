@@ -1,0 +1,41 @@
+From 51e0184232c7c309501b738f5d453af8f38151c4 Mon Sep 17 00:00:00 2001
+From: Pranav Vashi <neobuddy89@gmail.com>
+Date: Sun, 30 Jan 2022 16:42:04 +0530
+Subject: [PATCH] Settings: Allow disabling ripple effect on unlock [2/2]
+
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+Change-Id: I0aacb54eb57420037521c59b61a0a084da292f7b
+---
+ res/values/custom_strings.xml            | 3 +++
+ res/xml/security_lockscreen_settings.xml | 6 ++++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/res/values/custom_strings.xml b/res/values/custom_strings.xml
+index 0a857295d0b..84d03f585db 100644
+--- a/res/values/custom_strings.xml
++++ b/res/values/custom_strings.xml
+@@ -185,4 +185,7 @@
+     <string name="app_volume_title">Per-app volume control</string>
+     <string name="app_volume_summary">Allow to set different volume levels for each app</string>
+ 
++    <!-- Fingerprint Ripple Effect -->
++    <string name="enable_fingerprint_ripple_effect_title">Ripple effect</string>
++    <string name="enable_fingerprint_ripple_effect_summary">Show ripple effect on unlock with fingerprint</string>
+ </resources>
+diff --git a/res/xml/security_lockscreen_settings.xml b/res/xml/security_lockscreen_settings.xml
+index b8a2d4c52a8..4624a77cccf 100644
+--- a/res/xml/security_lockscreen_settings.xml
++++ b/res/xml/security_lockscreen_settings.xml
+@@ -74,6 +74,12 @@
+             android:title="@string/lockscreen_double_line_clock_setting_toggle"
+             android:summary="@string/lockscreen_double_line_clock_summary"
+             settings:controller="com.android.settings.display.LockscreenClockPreferenceController" />
++
++        <com.android.settings.custom.preference.SystemSettingSwitchPreference
++            android:key="enable_ripple_effect"
++            android:title="@string/enable_fingerprint_ripple_effect_title"
++            android:summary="@string/enable_fingerprint_ripple_effect_summary"
++            android:defaultValue="true" />
+     </PreferenceCategory>
+ 
+     <PreferenceCategory
