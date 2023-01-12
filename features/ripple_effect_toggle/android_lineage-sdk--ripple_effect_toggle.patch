@@ -1,0 +1,42 @@
+From 4f4e328650aa10ee3b0be413a03bb62fa209f1d2 Mon Sep 17 00:00:00 2001
+From: coduxer <coduxer@gmail.com>
+Date: Sat, 17 Dec 2022 20:15:39 +0200
+Subject: [PATCH] sdk: Allow disabling ripple effect on unlock [2/3]
+
+Change-Id: I0b9c6abe4464a00b06a5348f17064c77fcc43fec
+---
+ sdk/src/java/lineageos/providers/LineageSettings.java | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/sdk/src/java/lineageos/providers/LineageSettings.java b/sdk/src/java/lineageos/providers/LineageSettings.java
+index efdebf95..d18174ef 100644
+--- a/sdk/src/java/lineageos/providers/LineageSettings.java
++++ b/sdk/src/java/lineageos/providers/LineageSettings.java
+@@ -2027,6 +2027,15 @@ public final class LineageSettings {
+         public static final Validator THREE_FINGER_GESTURE_VALIDATOR =
+                 sBooleanValidator;
+ 
++        /**
++         * Whether to enable the ripple animation on fingerprint unlock
++         * @hide
++         */
++        public static final String ENABLE_RIPPLE_EFFECT = "enable_ripple_effect";
++
++        /** @hide */
++        public static final Validator ENABLE_RIPPLE_EFFECT_VALIDATOR =
++                sBooleanValidator;
+         /**
+          * Whether to take partial screenshot with volume down + power click.
+          */
+@@ -2316,6 +2325,8 @@ public final class LineageSettings {
+                     FORCE_SHOW_NAVBAR_VALIDATOR);
+             VALIDATORS.put(THREE_FINGER_GESTURE,
+                     THREE_FINGER_GESTURE_VALIDATOR);
++            VALIDATORS.put(ENABLE_RIPPLE_EFFECT,
++                    ENABLE_RIPPLE_EFFECT_VALIDATOR);
+             VALIDATORS.put(CLICK_PARTIAL_SCREENSHOT,
+                     CLICK_PARTIAL_SCREENSHOT_VALIDATOR);
+             VALIDATORS.put(ENABLE_TASKBAR,
+-- 
+2.39.0
+
