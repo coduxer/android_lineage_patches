@@ -1,0 +1,1286 @@
+From 601b61fd4ec2ecce77bd7f502ec738fb826af29d Mon Sep 17 00:00:00 2001
+From: jhenrique09 <jhenrique09.mcz@hotmail.com>
+Date: Thu, 19 Nov 2020 20:46:32 -0300
+Subject: [PATCH] Introduce PixelPropsUtils for safety net spoof [SQUASHED]
+
+* That will spoof build fingerprints on some g00gle apps
+* Thanks to kdrag0n for the original idea at
+  https://github.com/ProtonAOSP/android_frameworks_base/commit/5a54bfd846c7a26ba4820a361a6fec779edf8c5a
+
+@neobuddy89:
+* Squash subsequent changes by jhenrique09, SKULSHADY, Stallix
+
+Co-authored-by: Danny Lin <danny@kdrag0n.dev>
+Signed-off-by: jhenrique09 <jhenrique09.mcz@hotmail.com>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+Also squashed commit of the following:
+
+commit 780615526b4df07c0673c344ea65b1b9bb38f6c0
+Author: jhenrique09 <jhenrique09.mcz@hotmail.com>
+Date:   Tue Nov 8 12:33:47 2022 +0800
+
+    PixelPropsUtils: Get package name from context instead of app
+
+    11-04 08:48:39.039 11637 11637 E AndroidRuntime: FATAL EXCEPTION: main
+    11-04 08:48:39.039 11637 11637 E AndroidRuntime: Process: com.NextFloor.DestinyChild, PID: 11637
+    11-04 08:48:39.039 11637 11637 E AndroidRuntime: java.lang.RuntimeException: Unable to get provider androidx.startup.InitializationProvider: androidx.startup.StartupException: android.content.pm.PackageManager$NameNotFoundException: ComponentInfo{/androidx.startup.InitializationProvider}
+    11-04 08:48:39.039 11637 11637 E AndroidRuntime:   at android.app.ActivityThread.installProvider(ActivityThread.java:7488)
+
+    Change-Id: Icb12f938fe0fca710f8f9d29182d0134ba3c63eb
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit df0a1a8f9ce6c97474438798cd43f21355c0f1e9
+Author: EnesSastim <sastimenes@gmail.com>
+Date:   Tue Oct 25 14:04:49 2022 +0000
+
+    PixelPropsUtils: Don't spoof euicc
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit f10adfa0d2cd767dfb942ecfc6f52568fce4146f
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Sun Oct 16 00:31:02 2022 +0530
+
+    PixelPropsUtils: Update pixel devices list
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit f567f3c30163364d10598eb65871f65aae3b44d4
+Author: Dyneteve <dyneteve@hentaios.com>
+Date:   Tue Aug 23 18:57:05 2022 +0200
+
+    PixelPropsUtils: Apply key attestation workaround to Play Store as well
+
+    Play Store is used for the new Play Integrity API, extend the hack
+    to it as well.
+
+    Test: Device Integrity and Basic Integrity passes.
+
+    Change-Id: Id607cdff0b902f285a6c1b769c0a4ee4202842b1
+    Signed-off-by: Dyneteve <dyneteve@hentaios.com>
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 4c557fd6ff68eed3e587d0ac2842647e75df904d
+Author: Joey Huab <joey@evolution-x.org>
+Date:   Thu Oct 13 13:06:00 2022 +0000
+
+    PixelPropsUtils: Switch from raven fp to cheetah
+
+    * Update packages
+    * Remove GMS as we are setting it to angler
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 1ab2ce29eb1a259522b3c8a3638ce60b095e1a97
+Author: Alexander Winkowski <dereference23@outlook.com>
+Date:   Fri Oct 14 23:25:32 2022 +0200
+
+    PixelPropsUtils: Spoof Nexus 6P for GMS unstable process
+
+    To fix Play Integrity, taken from https://github.com/kdrag0n/safetynet-fix/pull/207
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 6f386d6ac22c8a43b7381177600aa0e11c472217
+Author: Akash Srivastava <akashniki@gmail.com>
+Date:   Sat Aug 20 19:04:32 2022 +0700
+
+    core: Pixel experience Blacklist For Google Photos for Android 13
+
+    * See, in Android 13 pixel_experience_2022_midyear was added, which needs to be blacklisted aswell
+    * Also bring in PIXEL_2021_EXPERIENCE which was missing
+
+    Change-Id: Id36d12afeda3cf6b39d01a0dbe7e3e9058659b8e
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit e819f8fb14924c32abce93cccc14fd9ea69b032b
+Author: Joey Huab <joey@evolution-x.org>
+Date:   Mon Aug 15 18:23:48 2022 +0000
+
+    PixelPropsUtils: Update game props
+
+    * Removed new state as multiple crash reports.
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 845fbd03cd9c521d0daa4cad63a7aa55aacfa995
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Sat Sep 10 21:23:33 2022 +0530
+
+    PixelPropsUtils: Use ro.build.incremental for settings intelligence
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 328b97baa8039e4b127585ac467846faf5f13cb9
+Author: johnmart19 <johnivan19999@gmail.com>
+Date:   Mon Jul 11 01:37:47 2022 +0300
+
+    PixelPropsUtils: GameProps: Hide Apex Legends as Mi11
+
+    Change-Id: I80b0136ef75f61154011ed7831994ffe8b5f5c96
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 1ddc5fc26838c3ab4592646028601c194b1cefee
+Author: Danny Lin <danny@kdrag0n.dev>
+Date:   Mon Nov 1 20:06:48 2021 -0700
+
+    PixelPropsUtils: Limit SafetyNet workarounds to unstable GMS process
+
+    The unstable process is where SafetyNet attestation actually runs, so
+    we only need to spoof the model in that process.
+
+    Change-Id: Idcf663907a6c3d0408dbd45b1ac53c9eb4200df8
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit ea1e57ba3fd786f62f94d4860cbc18eb3e81a074
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Sun May 29 19:34:09 2022 +0530
+
+    PixelPropsUtils: Exclude recorder from pixel props
+
+    * Just like YouTube apps, Recorder shows device is Pixel 5.
+      There is no special pixel feature associated with this app, exclude it.
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit b52ac41246b1bc15b0316c58ae7516f3b272643d
+Author: Anay Wadhera <awadhera@berkeley.edu>
+Date:   Fri Dec 10 13:11:49 2021 -0800
+
+    PixelPropsUtils: Remove spoofing for currently supported Pixel devices
+
+    @neobuddy89: Selectively enabled for GPhotos spoof.
+
+    Change-Id: I3a426f8671f841c16e5af7c0a2a204d19c502464
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit ce68c443c392c9be6fd0591958db960a1f10f9e3
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Sat Mar 26 12:32:23 2022 +0530
+
+    PixelPropsUtils: Add game props for mobile legends
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit c56868a33f61bbed50aff989271e5b204333a3e1
+Author: Omkar Chandorkar <gotenksIN@aosip.dev>
+Date:   Sat Mar 5 02:35:21 2022 +0900
+
+    PixelPropsUtils: Only spoof GMS to Raven
+
+    * please shut the fuck up EdgeTpuDeviceFactory
+
+    Change-Id: I2ef71a12e613bee7a01e27ae36f9b07a3b78e766
+    Signed-off-by: Omkar Chandorkar <gotenksIN@aosip.dev>
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 75ae3f4d46fa39ac9ea44ada3f3e79dcc660d684
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Sun Feb 27 15:23:50 2022 +0530
+
+    PixelPropsUtils: Whitelist YouTube apps
+
+    * Otherwise casting shows wrong device connected.
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 351c31da421ce13587e6b621b47c483a821f3023
+Author: Joey Huab <joey@evolution-x.org>
+Date:   Tue Feb 15 17:32:11 2022 +0900
+
+    PixelPropsUtils: Refactor Pixel 2021 features availability
+
+    * Apparently, Magic Eraser currently requires a
+      specific Photos version for it to show up and
+      actually work.
+      APK: https://apkmirror.com/apk/google-inc/photos/photos-5-65-0-405472367-release/google-photos-5-65-0-405472367-10-android-apk-download
+
+    * Basically, Magic Eraser feature will crash if
+      Photos is spoofed as Pixel XL. We want to
+      make Magic Eraser work by default as long as
+      the Unlimited Photos spoof is turned off.
+
+    * Set Pixel 5 as spoof for more Google apps that
+      uses TPU when spoofed as Pixel 6.
+
+    * Default Pixel 5 spoof for Photos and only switch
+      to Pixel XL when spoof is toggled.
+
+    * Pixel Buds has been reported to crash on Pixel 6 spoof
+      so move it to Pixel 5.
+
+    * Keep Google Translate to Pixel 5 as it's not really as
+      used as the others.
+
+    * We will try to bypass 2021 features and Raven
+      props for non-Pixel 2021 devices as apps usage
+      requires TPU.
+
+    @neobuddy89:
+    * Updated description to align with changes we made.
+    * oriole and raven devices can add PIXEL_2021_EXPERIENCE xml
+    * TODO: Skip PixelPropUtils for select pixel devices?
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 8d65b4cd3ae65bb711ea7da5fafa3ecc92268769
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Sat Feb 12 22:27:33 2022 +0530
+
+    PixelPropsUtils: User toggle for GamesProp [1/2]
+
+    * Disabled by default.
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit c28564cec076e0ebc9ca84e5f832837668d12cc5
+Author: spezi77 <spezi7713@gmx.net>
+Date:   Mon Jan 31 01:02:38 2022 +0100
+
+    PixelPropsUtils: User toggle for unlimited photos storage [1/2]
+
+    @neobuddy89: Cleaned up.
+
+    Squashed:
+        From: Kuba Wojciechowski <nullbytepl@gmail.com>
+        Date: Fri, 5 Nov 2021 01:52:51 +0300
+        Subject: [PATCH] core: Blacklist P21 experience system feature from Google
+         Photos
+
+        We want to include the P21 experience flag to enable new features,
+        however it seems like Google Photos uses it to decide whether to use the
+        TPU tflite delegate. There doesn't seem to be any fallback so we need to
+        make sure the feature is not exposed to the app so that a normal
+        NNAPI/GPU delegate can be used instead.
+
+        From: naveenjohnsonv <14140949+naveenjohnsonv@users.noreply.github.com>
+        Date: Mon, 13 Dec 2021 07:16:55 +0000
+        Subject: [PATCH] core: Blacklist P21 midyear, P20, P20 midyear experience
+         system feature from Google Photos
+
+        naveenjohnsonv: also blacklist PIXEL_2021_MIDYEAR_EXPERIENCE, PIXEL_2020_EXPERIENCE and PIXEL_2020_MIDYEAR_EXPERIENCE from Google Photos
+        Along with crosshatch spoof for Google Photos using PixelPropUtils, this should enable Unlimited Original Quality Backup without needing to remove any XMLs
+
+        From: kondors1995 <normandija1945@gmail.com>
+        Date: Mon, 20 Dec 2021 16:53:46 +0000
+        Subject: [PATCH] Core: Extend Pixel experience Blacklist For Google Photos
+
+        Turns out having these brakes Original quality backups.
+        Since these indicate that the device is pixel 4 with in the turn brakes device spoofing as OG pixel
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 50eeca3957d614362655a9846ba29c7d47319953
+Author: Joey Huab <joey@evolution-x.org>
+Date:   Thu Jan 27 13:33:48 2022 +0900
+
+    PixelPropsUtils: Whitelist ARCore
+
+    * ARCore crashes due to being spoofed as hardware and software mismatch is detected.
+    * Crash occurs while being used in Google app search feature.
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit e3758d43036f5f38492d079bcaf2f249b9f88574
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Tue Jan 11 09:49:00 2022 +0530
+
+    PixelPropsUtils: Bail out early when required
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit fdfe58f4c4ef89d5e5840daa137c31c75e732c7b
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Tue Jan 11 09:43:53 2022 +0530
+
+    PixelPropsUtils: Extend list of packages to keep
+
+    * It's better to not touch props for these packages at all,
+      instead running loop over it.
+    * Ref: https://github.com/AOSPA/android_frameworks_base/commit/dc2940c18ce0acbc5a90f22361d1bb7a6a4783d3
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit e2ebc7e0d3e74bff76f1cdc56e958c1f07fd4c0b
+Author: rdkng1 <richardraya39@gmail.com>
+Date:   Sat Dec 11 05:17:22 2021 +0000
+
+    PixelPropsUtils: Add GamesProps
+
+      Based on PixelPropsUtils, GamesProps will spoof the device needed to unlock the FPS of the following games:
+      * Free Fire - Spoof Asus ROG Phone 1 will unlock 90 FPS
+      * COD Mobile - Spoof Xperia 5 || will unlock 120 FPS (only on multiplayer mode)
+      * PUBG Mobile - Spoof OnePlus 8 Pro will unlock 90 FPS
+      * Wild Rift - Spoof OnePlus 8 Pro will unlock 120 FPS
+      * Cyber Hunter - Spoof OnePlus 8 Pro will unlock 90 FPS
+      * Fortnite - Spoof OnePlus 8 Pro will unlock 90 FPS
+
+    @neobuddy89: Adapt GamesProps to existing PixelProps and update games list.
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit e8353f537654f22b8236ab34d700c092049655cd
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Mon Jan 10 22:55:33 2022 +0530
+
+    PixelPropsUtils: Consolidate google app checks
+
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 5079c980a5dc4ed220c4e92713d67785809f1212
+Author: Pranav Vashi <neobuddy89@gmail.com>
+Date:   Sat Jan 8 18:35:43 2022 +0530
+
+    PixelPropsUtils: Do not change props for play store
+
+    * Else Play Protect certification fails.
+
+    Test: Open Play Store > Settings > About
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+commit 8bd8e4d4741226075823e485b60dbe24a4fb5a73
+Author: Danny Lin <danny@kdrag0n.dev>
+Date:   Mon Oct 11 20:00:44 2021 -0700
+
+    keystore: Block key attestation for SafetyNet
+
+    SafetyNet (part of Google Play Services) opportunistically uses
+    hardware-backed key attestation via KeyStore as a strong integrity
+    check. This causes SafetyNet to fail on custom ROMs because the verified
+    boot key and bootloader unlock state can be detected from attestation
+    certificates.
+
+    As a workaround, we can take advantage of the fact that SafetyNet's
+    usage of key attestation is opportunistic (i.e. falls back to basic
+    integrity checks if it fails) and prevent it from getting the
+    attestation certificate chain from KeyStore. This is done by checking
+    the stack for DroidGuard, which is the codename for SafetyNet, and
+    pretending that the device doesn't support key attestation.
+
+    Key attestation has only been blocked for SafetyNet specifically, as
+    Google Play Services and other apps have many valid reasons to use it.
+    For example, it appears to be involved in Google's mobile security key
+    ferature.
+
+    Change-Id: I5146439d47f42dc6231cb45c4dab9f61540056f6
+    Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../app/ApplicationPackageManager.java        |  33 ++
+ core/java/android/app/Instrumentation.java    |   6 +
+ .../util/crdroid/PixelPropsUtils.java         | 332 ++++++++++++++++++
+ .../keystore2/AndroidKeyStoreSpi.java         |   4 +
+ 4 files changed, 375 insertions(+)
+ create mode 100644 core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+
+diff --git a/core/java/android/app/ApplicationPackageManager.java b/core/java/android/app/ApplicationPackageManager.java
+index 475e0f4cb05ba..d4eefd27b7f8c 100644
+--- a/core/java/android/app/ApplicationPackageManager.java
++++ b/core/java/android/app/ApplicationPackageManager.java
+@@ -818,8 +818,41 @@ public Boolean recompute(HasSystemFeatureQuery query) {
+                 }
+             };
+ 
++    private static final String[] featuresPixel = {
++            "com.google.android.apps.photos.PIXEL_2019_PRELOAD",
++            "com.google.android.apps.photos.PIXEL_2019_MIDYEAR_PRELOAD",
++            "com.google.android.apps.photos.PIXEL_2018_PRELOAD",
++            "com.google.android.apps.photos.PIXEL_2017_PRELOAD",
++            "com.google.android.feature.PIXEL_2022_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2022_MIDYEAR_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2021_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2021_MIDYEAR_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2020_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2020_MIDYEAR_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2019_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2019_MIDYEAR_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2018_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2017_EXPERIENCE",
++            "com.google.android.feature.PIXEL_EXPERIENCE",
++            "com.google.android.feature.GOOGLE_BUILD",
++            "com.google.android.feature.GOOGLE_EXPERIENCE"
++    };
++
++    private static final String[] featuresNexus = {
++            "com.google.android.apps.photos.NEXUS_PRELOAD",
++            "com.google.android.apps.photos.nexus_preload"
++    };
++
+     @Override
+     public boolean hasSystemFeature(String name, int version) {
++        String packageName = ActivityThread.currentPackageName();
++        if (packageName != null &&
++                packageName.equals("com.google.android.apps.photos") &&
++                SystemProperties.getBoolean("persist.sys.pixelprops.gphotos", true)) {
++            if (Arrays.asList(featuresPixel).contains(name)) return false;
++            if (Arrays.asList(featuresNexus).contains(name)) return true;
++        }
++        if (Arrays.asList(featuresPixel).contains(name)) return true;
+         return mHasSystemFeatureCache.query(new HasSystemFeatureQuery(name, version));
+     }
+ 
+diff --git a/core/java/android/app/Instrumentation.java b/core/java/android/app/Instrumentation.java
+index 556058b567f99..be258caa1fb18 100644
+--- a/core/java/android/app/Instrumentation.java
++++ b/core/java/android/app/Instrumentation.java
+@@ -64,6 +64,8 @@
+ import java.util.List;
+ import java.util.concurrent.TimeoutException;
+ 
++import com.android.internal.util.crdroid.PixelPropsUtils;
++
+ /**
+  * Base class for implementing application instrumentation code.  When running
+  * with instrumentation turned on, this class will be instantiated for you
+@@ -1242,6 +1244,8 @@ public Application newApplication(ClassLoader cl, String className, Context cont
+         Application app = getFactory(context.getPackageName())
+                 .instantiateApplication(cl, className);
+         app.attach(context);
++        String packageName = context.getPackageName();
++        PixelPropsUtils.setProps(packageName);
+         return app;
+     }
+     
+@@ -1259,6 +1263,8 @@ static public Application newApplication(Class<?> clazz, Context context)
+             ClassNotFoundException {
+         Application app = (Application)clazz.newInstance();
+         app.attach(context);
++        String packageName = context.getPackageName();
++        PixelPropsUtils.setProps(packageName);
+         return app;
+     }
+ 
+diff --git a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+new file mode 100644
+index 0000000000000..cdad38636cb54
+--- /dev/null
++++ b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+@@ -0,0 +1,332 @@
++/*
++ * Copyright (C) 2020 The Pixel Experience Project
++ *               2021-2022 crDroid Android Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.internal.util.crdroid;
++
++import android.app.Application;
++import android.os.Build;
++import android.os.SystemProperties;
++import android.util.Log;
++
++import java.lang.reflect.Field;
++import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.Map;
++
++public class PixelPropsUtils {
++
++    private static final String TAG = PixelPropsUtils.class.getSimpleName();
++    private static final String DEVICE = "ro.product.device";
++    private static final boolean DEBUG = false;
++
++    private static final Map<String, Object> propsToChange;
++    private static final Map<String, Object> propsToChangePixel5;
++    private static final Map<String, Object> propsToChangePixel7Pro;
++    private static final Map<String, Object> propsToChangePixelXL;
++    private static final Map<String, Object> propsToChangeROG1;
++    private static final Map<String, Object> propsToChangeXP5;
++    private static final Map<String, Object> propsToChangeOP8P;
++    private static final Map<String, Object> propsToChangeOP9P;
++    private static final Map<String, Object> propsToChangeMI11;
++    private static final Map<String, ArrayList<String>> propsToKeep;
++
++    private static final String[] packagesToChangePixel7Pro = {
++            "com.google.android.apps.wallpaper",
++            "com.google.android.apps.privacy.wildlife",
++            "com.google.android.apps.subscriptions.red",
++            "com.google.android.inputmethod.latin"
++    };
++
++    private static final String[] packagesToChangePixelXL = {
++            "com.samsung.accessory",
++            "com.samsung.accessory.fridaymgr",
++            "com.samsung.accessory.berrymgr",
++            "com.samsung.accessory.neobeanmgr",
++            "com.samsung.android.app.watchmanager",
++            "com.samsung.android.geargplugin",
++            "com.samsung.android.gearnplugin",
++            "com.samsung.android.modenplugin",
++            "com.samsung.android.neatplugin",
++            "com.samsung.android.waterplugin"
++    };
++
++    private static final String[] extraPackagesToChange = {
++            "com.android.chrome",
++            "com.android.vending",
++            "com.breel.wallpapers20",
++            "com.nhs.online.nhsonline"
++    };
++
++    private static final String[] packagesToKeep = {
++            "com.google.android.GoogleCamera",
++            "com.google.android.GoogleCamera.Cameight",
++            "com.google.android.GoogleCamera.Go",
++            "com.google.android.GoogleCamera.Urnyx",
++            "com.google.android.GoogleCameraAsp",
++            "com.google.android.GoogleCameraCVM",
++            "com.google.android.GoogleCameraEng",
++            "com.google.android.GoogleCameraEng2",
++            "com.google.android.GoogleCameraGood",
++            "com.google.android.MTCL83",
++            "com.google.android.UltraCVM",
++            "com.google.android.apps.cameralite",
++            "com.google.android.dialer",
++            "com.google.android.euicc",
++            "com.google.ar.core",
++            "com.google.android.youtube",
++            "com.google.android.apps.youtube.kids",
++            "com.google.android.apps.youtube.music",
++            "com.google.android.apps.recorder",
++            "com.google.android.apps.wearables.maestro.companion"
++    };
++
++    private static final String[] packagesToChangeROG1 = {
++            "com.dts.freefireth",
++            "com.dts.freefiremax",
++            "com.madfingergames.legends"
++    };
++
++    private static final String[] packagesToChangeXP5 = {
++            "com.activision.callofduty.shooter",
++            "com.tencent.tmgp.kr.codm",
++            "com.garena.game.codm",
++            "com.vng.codmvn"
++    };
++
++    private static final String[] packagesToChangeOP8P = {
++            "com.tencent.ig",
++            "com.pubg.imobile",
++            "com.pubg.krmobile",
++            "com.vng.pubgmobile",
++            "com.rekoo.pubgm",
++            "com.tencent.tmgp.pubgmhd",
++            "com.riotgames.league.wildrift",
++            "com.riotgames.league.wildrifttw",
++            "com.riotgames.league.wildriftvn",
++            "com.netease.lztgglobal"
++    };
++
++    private static final String[] packagesToChangeOP9P = {
++            "com.epicgames.fortnite",
++            "com.epicgames.portal"
++    };
++
++    private static final String[] packagesToChangeMI11 = {
++            "com.ea.gp.apexlegendsmobilefps",
++            "com.levelinfinite.hotta.gp",
++            "com.mobile.legends",
++            "com.tencent.tmgp.sgame"
++    };
++
++    // Codenames for currently supported Pixels by Google
++    private static final String[] pixelCodenames = {
++            "cheetah",
++            "panther",
++            "bluejay",
++            "oriole",
++            "raven",
++            "barbet",
++            "redfin",
++            "bramble",
++            "sunfish",
++            "coral",
++            "flame"
++    };
++
++    private static volatile boolean sIsGms = false;
++    private static volatile boolean sIsFinsky = false;
++
++    static {
++        propsToKeep = new HashMap<>();
++        propsToChange = new HashMap<>();
++        propsToKeep.put("com.google.android.settings.intelligence", new ArrayList<>(Collections.singletonList("FINGERPRINT")));
++        propsToChangePixel7Pro = new HashMap<>();
++        propsToChangePixel7Pro.put("BRAND", "google");
++        propsToChangePixel7Pro.put("MANUFACTURER", "Google");
++        propsToChangePixel7Pro.put("DEVICE", "cheetah");
++        propsToChangePixel7Pro.put("PRODUCT", "cheetah");
++        propsToChangePixel7Pro.put("MODEL", "Pixel 7 Pro");
++        propsToChangePixel7Pro.put("FINGERPRINT", "google/cheetah/cheetah:13/TQ1A.230105.001.A2/9325679:user/release-keys");
++        propsToChangePixel5 = new HashMap<>();
++        propsToChangePixel5.put("BRAND", "google");
++        propsToChangePixel5.put("MANUFACTURER", "Google");
++        propsToChangePixel5.put("DEVICE", "redfin");
++        propsToChangePixel5.put("PRODUCT", "redfin");
++        propsToChangePixel5.put("MODEL", "Pixel 5");
++        propsToChangePixel5.put("FINGERPRINT", "google/redfin/redfin:13/TQ1A.230105.001/9292298:user/release-keys");
++        propsToChangePixelXL = new HashMap<>();
++        propsToChangePixelXL.put("BRAND", "google");
++        propsToChangePixelXL.put("MANUFACTURER", "Google");
++        propsToChangePixelXL.put("DEVICE", "marlin");
++        propsToChangePixelXL.put("PRODUCT", "marlin");
++        propsToChangePixelXL.put("MODEL", "Pixel XL");
++        propsToChangePixelXL.put("FINGERPRINT", "google/marlin/marlin:10/QP1A.191005.007.A3/5972272:user/release-keys");
++        propsToChangeROG1 = new HashMap<>();
++        propsToChangeROG1.put("MODEL", "ASUS_Z01QD");
++        propsToChangeROG1.put("MANUFACTURER", "asus");
++        propsToChangeXP5 = new HashMap<>();
++        propsToChangeXP5.put("MODEL", "SO-52A");
++        propsToChangeOP8P = new HashMap<>();
++        propsToChangeOP8P.put("MODEL", "IN2020");
++        propsToChangeOP8P.put("MANUFACTURER", "OnePlus");
++        propsToChangeOP9P = new HashMap<>();
++        propsToChangeOP9P.put("BRAND", "OnePlus");
++        propsToChangeOP9P.put("MANUFACTURER", "OnePlus");
++        propsToChangeOP9P.put("DEVICE", "OnePlus9Pro");
++        propsToChangeOP9P.put("PRODUCT", "OnePlus9Pro_EEA");
++        propsToChangeOP9P.put("MODEL", "LE2123");
++        propsToChangeMI11 = new HashMap<>();
++        propsToChangeMI11.put("BRAND", "Xiaomi");
++        propsToChangeMI11.put("MANUFACTURER", "Xiaomi");
++        propsToChangeMI11.put("DEVICE", "star");
++        propsToChangeMI11.put("PRODUCT", "star");
++        propsToChangeMI11.put("MODEL", "M2102K1G");
++    }
++
++    public static void setProps(String packageName) {
++        if (packageName == null || packageName.isEmpty()) {
++            return;
++        }
++        if (Arrays.asList(packagesToKeep).contains(packageName)) {
++            return;
++        }
++        if (packageName.startsWith("com.google.")
++                || Arrays.asList(extraPackagesToChange).contains(packageName)) {
++
++            boolean isPixelDevice = Arrays.asList(pixelCodenames).contains(SystemProperties.get(DEVICE));
++
++            if (packageName.equals("com.google.android.apps.photos")) {
++                if (SystemProperties.getBoolean("persist.sys.pixelprops.gphotos", true)) {
++                    propsToChange.putAll(propsToChangePixelXL);
++                } else {
++                    if (isPixelDevice) return;
++                    propsToChange.putAll(propsToChangePixel5);
++                }
++            } else if (isPixelDevice) {
++                return;
++            } else if (packageName.equals("com.android.vending")) {
++                sIsFinsky = true;
++                return;
++            } else {
++                if (Arrays.asList(packagesToChangePixel7Pro).contains(packageName)) {
++                    propsToChange.putAll(propsToChangePixel7Pro);
++                } else if (Arrays.asList(packagesToChangePixelXL).contains(packageName)) {
++                    propsToChange.putAll(propsToChangePixelXL);
++                } else {
++                    propsToChange.putAll(propsToChangePixel5);
++                }
++            }
++
++            if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
++            for (Map.Entry<String, Object> prop : propsToChange.entrySet()) {
++                String key = prop.getKey();
++                Object value = prop.getValue();
++                if (propsToKeep.containsKey(packageName) && propsToKeep.get(packageName).contains(key)) {
++                    if (DEBUG) Log.d(TAG, "Not defining " + key + " prop for: " + packageName);
++                    continue;
++                }
++                if (DEBUG) Log.d(TAG, "Defining " + key + " prop for: " + packageName);
++                setPropValue(key, value);
++            }
++            if (packageName.equals("com.google.android.gms")) {
++                final String processName = Application.getProcessName();
++                if (processName.equals("com.google.android.gms.unstable")) {
++                    sIsGms = true;
++                    setPropValue("FINGERPRINT", "google/angler/angler:6.0/MDB08L/2343525:user/release-keys");
++                    setPropValue("MODEL", "angler");
++                }
++                return;
++            }
++            // Set proper indexing fingerprint
++            if (packageName.equals("com.google.android.settings.intelligence")) {
++                setPropValue("FINGERPRINT", Build.VERSION.INCREMENTAL);
++            }
++        } else {
++
++            if (!SystemProperties.getBoolean("persist.sys.pixelprops.games", false))
++                return;
++
++            if (Arrays.asList(packagesToChangeROG1).contains(packageName)) {
++                if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
++                for (Map.Entry<String, Object> prop : propsToChangeROG1.entrySet()) {
++                    String key = prop.getKey();
++                    Object value = prop.getValue();
++                    setPropValue(key, value);
++                }
++            } else if (Arrays.asList(packagesToChangeXP5).contains(packageName)) {
++                if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
++                for (Map.Entry<String, Object> prop : propsToChangeXP5.entrySet()) {
++                    String key = prop.getKey();
++                    Object value = prop.getValue();
++                    setPropValue(key, value);
++                }
++            } else if (Arrays.asList(packagesToChangeOP8P).contains(packageName)) {
++                if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
++                for (Map.Entry<String, Object> prop : propsToChangeOP8P.entrySet()) {
++                    String key = prop.getKey();
++                    Object value = prop.getValue();
++                    setPropValue(key, value);
++                }
++            } else if (Arrays.asList(packagesToChangeOP9P).contains(packageName)) {
++                if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
++                for (Map.Entry<String, Object> prop : propsToChangeOP9P.entrySet()) {
++                    String key = prop.getKey();
++                    Object value = prop.getValue();
++                    setPropValue(key, value);
++                }
++            } else if (Arrays.asList(packagesToChangeMI11).contains(packageName)) {
++                if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
++                for (Map.Entry<String, Object> prop : propsToChangeMI11.entrySet()) {
++                    String key = prop.getKey();
++                    Object value = prop.getValue();
++                    setPropValue(key, value);
++                }
++            }
++        }
++    }
++
++    private static void setPropValue(String key, Object value) {
++        try {
++            if (DEBUG) Log.d(TAG, "Defining prop " + key + " to " + value.toString());
++            Field field = Build.class.getDeclaredField(key);
++            field.setAccessible(true);
++            field.set(null, value);
++            field.setAccessible(false);
++        } catch (NoSuchFieldException | IllegalAccessException e) {
++            Log.e(TAG, "Failed to set prop " + key, e);
++        }
++    }
++
++    private static boolean isCallerSafetyNet() {
++        return Arrays.stream(Thread.currentThread().getStackTrace())
++                .anyMatch(elem -> elem.getClassName().contains("DroidGuard"));
++    }
++
++    public static void onEngineGetCertificateChain() {
++        // Check stack for SafetyNet
++        if (sIsGms && isCallerSafetyNet()) {
++            throw new UnsupportedOperationException();
++        }
++
++        // Check stack for PlayIntegrity
++        if (sIsFinsky) {
++            throw new UnsupportedOperationException();
++        }
++    }
++}
+diff --git a/keystore/java/android/security/keystore2/AndroidKeyStoreSpi.java b/keystore/java/android/security/keystore2/AndroidKeyStoreSpi.java
+index 33411e1ec5b97..82b6155f8c48d 100644
+--- a/keystore/java/android/security/keystore2/AndroidKeyStoreSpi.java
++++ b/keystore/java/android/security/keystore2/AndroidKeyStoreSpi.java
+@@ -77,6 +77,8 @@
+ 
+ import javax.crypto.SecretKey;
+ 
++import com.android.internal.util.crdroid.PixelPropsUtils;
++
+ /**
+  * A java.security.KeyStore interface for the Android KeyStore. An instance of
+  * it can be created via the {@link java.security.KeyStore#getInstance(String)
+@@ -164,6 +166,8 @@ private KeyEntryResponse getKeyMetadata(String alias) {
+ 
+     @Override
+     public Certificate[] engineGetCertificateChain(String alias) {
++        PixelPropsUtils.onEngineGetCertificateChain();
++
+         KeyEntryResponse response = getKeyMetadata(alias);
+ 
+         if (response == null || response.metadata.certificate == null) {
+
+From 9a728d539bb5240670aa07757594bdb3bed02596 Mon Sep 17 00:00:00 2001
+From: Pranav Vashi <neobuddy89@gmail.com>
+Date: Sun, 20 Nov 2022 18:31:43 +0530
+Subject: [PATCH] PixelPropsUtils: Restrict P21+ features usage for 2021+ Pixel
+ devices only
+
+* P21 features are selectively available on 2021+ devices.
+  Let these devices enable selectively by adding respective xmls.
+* For rest devices, simply blacklist these features.
+* Also blacklist these features for pixel unlimited photos storage.
+
+Ref: https://github.com/Evolution-X/frameworks_base/commit/17179e82e8306e2d1dc4395312ad8a249996fe47
+Co-authored-by: Joey Huab <joey@evolution-x.org>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../app/ApplicationPackageManager.java        | 24 +++++++++++++++----
+ 1 file changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/core/java/android/app/ApplicationPackageManager.java b/core/java/android/app/ApplicationPackageManager.java
+index d4eefd27b7f8c..0471bf8bee1fb 100644
+--- a/core/java/android/app/ApplicationPackageManager.java
++++ b/core/java/android/app/ApplicationPackageManager.java
+@@ -818,15 +818,19 @@ public Boolean recompute(HasSystemFeatureQuery query) {
+                 }
+             };
+ 
++    private static final String[] p21Codenames = {
++            "cheetah",
++            "panther",
++            "bluejay",
++            "oriole",
++            "raven"
++    };
++
+     private static final String[] featuresPixel = {
+             "com.google.android.apps.photos.PIXEL_2019_PRELOAD",
+             "com.google.android.apps.photos.PIXEL_2019_MIDYEAR_PRELOAD",
+             "com.google.android.apps.photos.PIXEL_2018_PRELOAD",
+             "com.google.android.apps.photos.PIXEL_2017_PRELOAD",
+-            "com.google.android.feature.PIXEL_2022_EXPERIENCE",
+-            "com.google.android.feature.PIXEL_2022_MIDYEAR_EXPERIENCE",
+-            "com.google.android.feature.PIXEL_2021_EXPERIENCE",
+-            "com.google.android.feature.PIXEL_2021_MIDYEAR_EXPERIENCE",
+             "com.google.android.feature.PIXEL_2020_EXPERIENCE",
+             "com.google.android.feature.PIXEL_2020_MIDYEAR_EXPERIENCE",
+             "com.google.android.feature.PIXEL_2019_EXPERIENCE",
+@@ -838,6 +842,13 @@ public Boolean recompute(HasSystemFeatureQuery query) {
+             "com.google.android.feature.GOOGLE_EXPERIENCE"
+     };
+ 
++    private static final String[] featuresP21 = {
++            "com.google.android.feature.PIXEL_2022_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2022_MIDYEAR_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2021_EXPERIENCE",
++            "com.google.android.feature.PIXEL_2021_MIDYEAR_EXPERIENCE"
++    };
++
+     private static final String[] featuresNexus = {
+             "com.google.android.apps.photos.NEXUS_PRELOAD",
+             "com.google.android.apps.photos.nexus_preload"
+@@ -850,9 +861,14 @@ public boolean hasSystemFeature(String name, int version) {
+                 packageName.equals("com.google.android.apps.photos") &&
+                 SystemProperties.getBoolean("persist.sys.pixelprops.gphotos", true)) {
+             if (Arrays.asList(featuresPixel).contains(name)) return false;
++            if (Arrays.asList(featuresP21).contains(name)) return false;
+             if (Arrays.asList(featuresNexus).contains(name)) return true;
+         }
+         if (Arrays.asList(featuresPixel).contains(name)) return true;
++        if (Arrays.asList(featuresP21).contains(name) &&
++                !Arrays.asList(p21Codenames).contains(SystemProperties.get("ro.product.device"))) {
++            return false;
++        }
+         return mHasSystemFeatureCache.query(new HasSystemFeatureQuery(name, version));
+     }
+ 
+From f45561f823218e887879523fd0ac0e83e87b5c7b Mon Sep 17 00:00:00 2001
+From: Danny Lin <danny@kdrag0n.dev>
+Date: Mon, 23 Jan 2023 04:31:31 +0000
+Subject: [PATCH] PixelPropsUtils: Use spoofBuildGms for FP and model
+ alteration
+
+* From https://github.com/hentaiOS/platform_frameworks_base/commit/05b3987d7b892ea50ba0eee865fe988c27ae90c1.
+
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../util/crdroid/PixelPropsUtils.java         | 25 +++++++++++++++++--
+ 1 file changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+index bd5f2227e051e..d7d69ed877525 100644
+--- a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
++++ b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+@@ -253,8 +253,7 @@ public static void setProps(String packageName) {
+                 final String processName = Application.getProcessName();
+                 if (processName.equals("com.google.android.gms.unstable")) {
+                     sIsGms = true;
+-                    setPropValue("FINGERPRINT", "google/angler/angler:6.0/MDB08L/2343525:user/release-keys");
+-                    setPropValue("MODEL", "angler");
++                    spoofBuildGms();
+                 }
+                 return;
+             }
+@@ -318,6 +317,28 @@ private static void setPropValue(String key, Object value) {
+         }
+     }
+ 
++    private static void setBuildField(String key, String value) {
++        try {
++            // Unlock
++            Field field = Build.class.getDeclaredField(key);
++            field.setAccessible(true);
++
++            // Edit
++            field.set(null, value);
++
++            // Lock
++            field.setAccessible(false);
++        } catch (NoSuchFieldException | IllegalAccessException e) {
++            Log.e(TAG, "Failed to spoof Build." + key, e);
++        }
++    }
++
++    private static void spoofBuildGms() {
++        // Alter model name and fingerprint to avoid hardware attestation enforcement
++        setBuildField("FINGERPRINT", "google/angler/angler:6.0/MDB08L/2343525:user/release-keys");
++        setBuildField("MODEL", "angler");
++    }
++
+     private static boolean isCallerSafetyNet() {
+         return Arrays.stream(Thread.currentThread().getStackTrace())
+                 .anyMatch(elem -> elem.getClassName().contains("DroidGuard"));
+
+From 9ae2bd5480d1c5dbae8095810d10abbacd257e5e Mon Sep 17 00:00:00 2001
+From: Dyneteve <dyneteve@hentaios.com>
+Date: Tue, 6 Dec 2022 15:59:08 +0100
+Subject: [PATCH] PixelPropsUtils: Use actual device model name
+
+Change-Id: I454654d87b3ea6286e12e9a9f5ed120f06cb2aa6
+Signed-off-by: Dyneteve <dyneteve@hentaios.com>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../java/com/android/internal/util/crdroid/PixelPropsUtils.java | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+index d7d69ed877525..8687f06acf985 100644
+--- a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
++++ b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+@@ -336,7 +336,7 @@ private static void setBuildField(String key, String value) {
+     private static void spoofBuildGms() {
+         // Alter model name and fingerprint to avoid hardware attestation enforcement
+         setBuildField("FINGERPRINT", "google/angler/angler:6.0/MDB08L/2343525:user/release-keys");
+-        setBuildField("MODEL", "angler");
++        setBuildField("MODEL", Build.MODEL + "\u200b");
+     }
+ 
+     private static boolean isCallerSafetyNet() {
+
+From d7987b427296049ef616b6d1e3689e118108631c Mon Sep 17 00:00:00 2001
+From: Anirudh Gupta <anirudhgupta109@aosip.dev>
+Date: Wed, 4 Jan 2023 18:20:56 +0000
+Subject: [PATCH] PixelPropsUtils: Set shipping level to 32 for devices >=33
+
+If ro.product.first_api_level is 33, its forced to use HW attestation even though the safteynet checker app shows BASIC
+setting it to 32 allows for software attestation and passing CTS
+
+Change-Id: Ie7326eaac48424cdea3d9633ebe13c65053ef6c1
+Signed-off-by: Dyneteve <dyneteve@hentaios.com>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../internal/util/crdroid/PixelPropsUtils.java  | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+index 8687f06acf985..c747cd7a5f170 100644
+--- a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
++++ b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+@@ -333,10 +333,27 @@ private static void setBuildField(String key, String value) {
+         }
+     }
+ 
++    private static void setVersionField(String key, Integer value) {
++        try {
++            // Unlock
++            Field field = Build.VERSION.class.getDeclaredField(key);
++            field.setAccessible(true);
++
++            // Edit
++            field.set(null, value);
++
++            // Lock
++            field.setAccessible(false);
++        } catch (NoSuchFieldException | IllegalAccessException e) {
++            Log.e(TAG, "Failed to spoof Build." + key, e);
++        }
++    }
++
+     private static void spoofBuildGms() {
+         // Alter model name and fingerprint to avoid hardware attestation enforcement
+         setBuildField("FINGERPRINT", "google/angler/angler:6.0/MDB08L/2343525:user/release-keys");
+         setBuildField("MODEL", Build.MODEL + "\u200b");
++        setVersionField("DEVICE_INITIAL_SDK_INT", Build.VERSION_CODES.S);
+     }
+ 
+     private static boolean isCallerSafetyNet() {
+
+From f0f413d77a7e985e58afc5fae7e78c74c2bb0309 Mon Sep 17 00:00:00 2001
+From: Joey Huab <joey@evolution-x.org>
+Date: Tue, 24 Jan 2023 15:30:03 +0000
+Subject: [PATCH] PixelPropsUtils: Update game props
+
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../util/crdroid/PixelPropsUtils.java         | 94 +++++++++++++------
+ 1 file changed, 66 insertions(+), 28 deletions(-)
+
+diff --git a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+index c747cd7a5f170..30ea1e7186c24 100644
+--- a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
++++ b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+@@ -40,12 +40,15 @@ public class PixelPropsUtils {
+     private static final Map<String, Object> propsToChangePixel7Pro;
+     private static final Map<String, Object> propsToChangePixelXL;
+     private static final Map<String, Object> propsToChangeROG1;
++    private static final Map<String, Object> propsToChangeROG3;
+     private static final Map<String, Object> propsToChangeXP5;
+     private static final Map<String, Object> propsToChangeOP8P;
+-    private static final Map<String, Object> propsToChangeOP9P;
+-    private static final Map<String, Object> propsToChangeMI11;
++    private static final Map<String, Object> propsToChangeOP9R;
++    private static final Map<String, Object> propsToChange11T;
++    private static final Map<String, Object> propsToChangeF4;
+     private static final Map<String, ArrayList<String>> propsToKeep;
+ 
++    // Packages to Spoof as Pixel 7 Pro
+     private static final String[] packagesToChangePixel7Pro = {
+             "com.google.android.apps.wallpaper",
+             "com.google.android.apps.privacy.wildlife",
+@@ -53,6 +56,7 @@ public class PixelPropsUtils {
+             "com.google.android.inputmethod.latin"
+     };
+ 
++    // Packages to Spoof as Pixel XL
+     private static final String[] packagesToChangePixelXL = {
+             "com.samsung.accessory",
+             "com.samsung.accessory.fridaymgr",
+@@ -66,6 +70,7 @@ public class PixelPropsUtils {
+             "com.samsung.android.waterplugin"
+     };
+ 
++    // Packages to Spoof as Pixel 7 Pro
+     private static final String[] extraPackagesToChange = {
+             "com.android.chrome",
+             "com.android.vending",
+@@ -74,6 +79,7 @@ public class PixelPropsUtils {
+             "com.netflix.mediaclient"
+     };
+ 
++    // Packages to Keep with original device
+     private static final String[] packagesToKeep = {
+             "com.google.android.GoogleCamera",
+             "com.google.android.GoogleCamera.Cameight",
+@@ -97,42 +103,59 @@ public class PixelPropsUtils {
+             "com.google.android.apps.wearables.maestro.companion"
+     };
+ 
++    // Packages to Spoof as ROG Phone 1
+     private static final String[] packagesToChangeROG1 = {
+-            "com.dts.freefireth",
+-            "com.dts.freefiremax",
+             "com.madfingergames.legends"
+     };
+ 
++    // Packages to Spoof as ROG Phone 3
++    private static final String[] packagesToChangeROG3 = {
++            "com.pearlabyss.blackdesertm",
++            "com.pearlabyss.blackdesertm.gl"
++    };
++
++    // Packages to Spoof as Xperia 5
+     private static final String[] packagesToChangeXP5 = {
+             "com.activision.callofduty.shooter",
+-            "com.tencent.tmgp.kr.codm",
+             "com.garena.game.codm",
++            "com.tencent.tmgp.kr.codm",
+             "com.vng.codmvn"
+     };
+ 
++    // Packages to Spoof as OnePlus 8 Pro
+     private static final String[] packagesToChangeOP8P = {
+-            "com.tencent.ig",
++            "com.netease.lztgglobal",
+             "com.pubg.imobile",
+             "com.pubg.krmobile",
+-            "com.vng.pubgmobile",
+             "com.rekoo.pubgm",
+-            "com.tencent.tmgp.pubgmhd",
+             "com.riotgames.league.wildrift",
+             "com.riotgames.league.wildrifttw",
+             "com.riotgames.league.wildriftvn",
+-            "com.netease.lztgglobal"
++            "com.tencent.ig",
++            "com.tencent.tmgp.pubgmhd",
++            "com.vng.pubgmobile"
+     };
+ 
+-    private static final String[] packagesToChangeOP9P = {
++    // Packages to Spoof as OnePlus 9R
++    private static final String[] packagesToChangeOP9R = {
+             "com.epicgames.fortnite",
+             "com.epicgames.portal"
+     };
+ 
+-    private static final String[] packagesToChangeMI11 = {
++    // Packages to Spoof as Mi 11T
++    private static final String[] packagesToChange11T = {
+             "com.ea.gp.apexlegendsmobilefps",
+             "com.levelinfinite.hotta.gp",
+             "com.mobile.legends",
+-            "com.tencent.tmgp.sgame"
++            "com.supercell.clashofclans",
++            "com.tencent.tmgp.sgame",
++            "com.vng.mlbbvn"
++    };
++
++    // Packages to Spoof as POCO F4
++    private static final String[] packagesToChangeF4 = {
++            "com.dts.freefiremax",
++            "com.dts.freefireth"
+     };
+ 
+     // Codenames for currently supported Pixels by Google
+@@ -181,23 +204,24 @@ public class PixelPropsUtils {
+         propsToChangeROG1 = new HashMap<>();
+         propsToChangeROG1.put("MODEL", "ASUS_Z01QD");
+         propsToChangeROG1.put("MANUFACTURER", "asus");
++        propsToChangeROG3 = new HashMap<>();
++        propsToChangeROG3.put("MODEL", "ASUS_I003D");
++        propsToChangeROG3.put("MANUFACTURER", "asus");
+         propsToChangeXP5 = new HashMap<>();
+         propsToChangeXP5.put("MODEL", "SO-52A");
++        propsToChangeXP5.put("MANUFACTURER", "Sony");
+         propsToChangeOP8P = new HashMap<>();
+         propsToChangeOP8P.put("MODEL", "IN2020");
+         propsToChangeOP8P.put("MANUFACTURER", "OnePlus");
+-        propsToChangeOP9P = new HashMap<>();
+-        propsToChangeOP9P.put("BRAND", "OnePlus");
+-        propsToChangeOP9P.put("MANUFACTURER", "OnePlus");
+-        propsToChangeOP9P.put("DEVICE", "OnePlus9Pro");
+-        propsToChangeOP9P.put("PRODUCT", "OnePlus9Pro_EEA");
+-        propsToChangeOP9P.put("MODEL", "LE2123");
+-        propsToChangeMI11 = new HashMap<>();
+-        propsToChangeMI11.put("BRAND", "Xiaomi");
+-        propsToChangeMI11.put("MANUFACTURER", "Xiaomi");
+-        propsToChangeMI11.put("DEVICE", "star");
+-        propsToChangeMI11.put("PRODUCT", "star");
+-        propsToChangeMI11.put("MODEL", "M2102K1G");
++        propsToChangeOP9R = new HashMap<>();
++        propsToChangeOP9R.put("MODEL", "LE2101");
++        propsToChangeOP9R.put("MANUFACTURER", "OnePlus");
++        propsToChange11T = new HashMap<>();
++        propsToChange11T.put("MODEL", "21081111RG");
++        propsToChange11T.put("MANUFACTURER", "Xiaomi");
++        propsToChangeF4 = new HashMap<>();
++        propsToChangeF4.put("MODEL", "22021211RG");
++        propsToChangeF4.put("MANUFACTURER", "Xiaomi");
+     }
+ 
+     public static void setProps(String packageName) {
+@@ -273,6 +297,13 @@ public static void setProps(String packageName) {
+                     Object value = prop.getValue();
+                     setPropValue(key, value);
+                 }
++            } else if (Arrays.asList(packagesToChangeROG3).contains(packageName)) {
++                if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
++                for (Map.Entry<String, Object> prop : propsToChangeROG3.entrySet()) {
++                    String key = prop.getKey();
++                    Object value = prop.getValue();
++                    setPropValue(key, value);
++                }
+             } else if (Arrays.asList(packagesToChangeXP5).contains(packageName)) {
+                 if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
+                 for (Map.Entry<String, Object> prop : propsToChangeXP5.entrySet()) {
+@@ -287,16 +318,23 @@ public static void setProps(String packageName) {
+                     Object value = prop.getValue();
+                     setPropValue(key, value);
+                 }
+-            } else if (Arrays.asList(packagesToChangeOP9P).contains(packageName)) {
++            } else if (Arrays.asList(packagesToChangeOP9R).contains(packageName)) {
++                if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
++                for (Map.Entry<String, Object> prop : propsToChangeOP9R.entrySet()) {
++                    String key = prop.getKey();
++                    Object value = prop.getValue();
++                    setPropValue(key, value);
++                }
++            } else if (Arrays.asList(packagesToChange11T).contains(packageName)) {
+                 if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
+-                for (Map.Entry<String, Object> prop : propsToChangeOP9P.entrySet()) {
++                for (Map.Entry<String, Object> prop : propsToChange11T.entrySet()) {
+                     String key = prop.getKey();
+                     Object value = prop.getValue();
+                     setPropValue(key, value);
+                 }
+-            } else if (Arrays.asList(packagesToChangeMI11).contains(packageName)) {
++            } else if (Arrays.asList(packagesToChangeF4).contains(packageName)) {
+                 if (DEBUG) Log.d(TAG, "Defining props for: " + packageName);
+-                for (Map.Entry<String, Object> prop : propsToChangeMI11.entrySet()) {
++                for (Map.Entry<String, Object> prop : propsToChangeF4.entrySet()) {
+                     String key = prop.getKey();
+                     Object value = prop.getValue();
+                     setPropValue(key, value);
+
+From 75d0d5d3856080c492caa6c05199238e487e6efd Mon Sep 17 00:00:00 2001
+From: Dyneteve <dyneteve@hentaios.com>
+Date: Wed, 8 Feb 2023 18:13:14 +0100
+Subject: [PATCH] PixelPropsUtils: Make CTS/Play Integrity pass again
+
+The logic behind CTS and Play Integrity has been updated today it now
+checks the product and model names against the fingerprint and if
+they do not match the CTS profile will fail.
+
+Also while we are at it use a newer FP from Pixel XL and add logging
+for key attestation blocking for debugging.
+
+Test: Boot, check for CTS and Play Integrity
+
+Change-Id: I089d5ef935bba40338e10c795ea7d181103ffd15
+Signed-off-by: Dyneteve <dyneteve@hentaios.com>
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
+---
+ .../util/crdroid/PixelPropsUtils.java         | 20 +++++++++----------
+ 1 file changed, 9 insertions(+), 11 deletions(-)
+
+diff --git a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+index 30ea1e7186c24..0f79856c71b8d 100644
+--- a/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
++++ b/core/java/com/android/internal/util/crdroid/PixelPropsUtils.java
+@@ -389,24 +389,22 @@ private static void setVersionField(String key, Integer value) {
+ 
+     private static void spoofBuildGms() {
+         // Alter model name and fingerprint to avoid hardware attestation enforcement
+-        setBuildField("FINGERPRINT", "google/angler/angler:6.0/MDB08L/2343525:user/release-keys");
+-        setBuildField("MODEL", Build.MODEL + "\u200b");
+-        setVersionField("DEVICE_INITIAL_SDK_INT", Build.VERSION_CODES.S);
++        setBuildField("FINGERPRINT", "google/marlin/marlin:7.1.2/NJH47F/4146041:user/release-keys");
++        setBuildField("PRODUCT", "marlin");
++        setBuildField("DEVICE", "marlin");
++        setBuildField("MODEL", "Pixel XL");
++        setVersionField("DEVICE_INITIAL_SDK_INT", Build.VERSION_CODES.N_MR1);
+     }
+ 
+     private static boolean isCallerSafetyNet() {
+-        return Arrays.stream(Thread.currentThread().getStackTrace())
++        return sIsGms && Arrays.stream(Thread.currentThread().getStackTrace())
+                 .anyMatch(elem -> elem.getClassName().contains("DroidGuard"));
+     }
+ 
+     public static void onEngineGetCertificateChain() {
+-        // Check stack for SafetyNet
+-        if (sIsGms && isCallerSafetyNet()) {
+-            throw new UnsupportedOperationException();
+-        }
+-
+-        // Check stack for PlayIntegrity
+-        if (sIsFinsky) {
++        // Check stack for SafetyNet or Play Integrity
++        if (isCallerSafetyNet() || sIsFinsky) {
++            Log.i(TAG, "Blocked key attestation sIsGms=" + sIsGms + " sIsFinsky=" + sIsFinsky);
+             throw new UnsupportedOperationException();
+         }
+     }
