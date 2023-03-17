@@ -1,0 +1,153 @@
+From 14bd4af0c47fdb048f0d2fe44bc3b288918dabde Mon Sep 17 00:00:00 2001
+From: Danny Baumann <dannybaumann@web.de>
+Date: Fri, 12 Feb 2021 11:51:37 +0530
+Subject: [PATCH] Settings: Add SystemSettingSwitchPreference
+
+Co-authored-by: SpiritCroc <dev@spiritcroc.de>
+Signed-off-by: Adithya R <gh0strider.2k18.reborn@gmail.com>
+Signed-off-by: 4j17h <7hou74m4j17h@gmail.com>
+---
+ .../SystemSettingSwitchPreference.java        | 51 +++++++++++++
+ .../preferences/SystemSettingsStore.java      | 73 +++++++++++++++++++
+ 2 files changed, 124 insertions(+)
+ create mode 100644 src/com/android/settings/widget/preferences/SystemSettingSwitchPreference.java
+ create mode 100644 src/com/android/settings/widget/preferences/SystemSettingsStore.java
+
+diff --git a/src/com/android/settings/widget/preferences/SystemSettingSwitchPreference.java b/src/com/android/settings/widget/preferences/SystemSettingSwitchPreference.java
+new file mode 100644
+index 00000000000..9dbd51307e3
+--- /dev/null
++++ b/src/com/android/settings/widget/preferences/SystemSettingSwitchPreference.java
+@@ -0,0 +1,52 @@
++/*
++ * Copyright (C) 2014 The CyanogenMod Project
++ * Copyright (C) 2017 AICP
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.widget.preferences;
++
++import android.content.Context;
++import android.provider.Settings;
++import androidx.preference.SwitchPreference;
++import android.util.AttributeSet;
++
++public class SystemSettingSwitchPreference extends SwitchPreference {
++
++    public SystemSettingSwitchPreference(Context context, AttributeSet attrs, int defStyle) {
++        super(context, attrs, defStyle);
++        setPreferenceDataStore(new SystemSettingsStore(context.getContentResolver()));
++    }
++
++    public SystemSettingSwitchPreference(Context context, AttributeSet attrs) {
++        super(context, attrs);
++        setPreferenceDataStore(new SystemSettingsStore(context.getContentResolver()));
++    }
++
++    public SystemSettingSwitchPreference(Context context) {
++        super(context);
++        setPreferenceDataStore(new SystemSettingsStore(context.getContentResolver()));
++    }
++
++    @Override
++    protected void onSetInitialValue(boolean restoreValue, Object defaultValue) {
++        // This is what default TwoStatePreference implementation is doing without respecting
++        // real default value:
++        //setChecked(restoreValue ? getPersistedBoolean(mChecked)
++        //        : (Boolean) defaultValue);
++        // Instead, we better do
++        setChecked(restoreValue ? getPersistedBoolean((Boolean) defaultValue)
++                : (Boolean) defaultValue);
++    }
++}
+diff --git a/src/com/android/settings/widget/preferences/SystemSettingsStore.java b/src/com/android/settings/widget/preferences/SystemSettingsStore.java
+new file mode 100644
+index 00000000000..faf719723e5
+--- /dev/null
++++ b/src/com/android/settings/widget/preferences/SystemSettingsStore.java
+@@ -0,0 +1,73 @@
++/*
++ * Copyright (C) 2017 AICP
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.widget.preferences;
++
++import android.content.ContentResolver;
++import android.preference.PreferenceDataStore;
++import android.provider.Settings;
++
++public class SystemSettingsStore extends androidx.preference.PreferenceDataStore
++        implements PreferenceDataStore {
++
++    private ContentResolver mContentResolver;
++
++    public SystemSettingsStore(ContentResolver contentResolver) {
++        mContentResolver = contentResolver;
++    }
++
++    public boolean getBoolean(String key, boolean defValue) {
++        return getInt(key, defValue ? 1 : 0) != 0;
++    }
++
++    public float getFloat(String key, float defValue) {
++        return Settings.System.getFloat(mContentResolver, key, defValue);
++    }
++
++    public int getInt(String key, int defValue) {
++        return Settings.System.getInt(mContentResolver, key, defValue);
++    }
++
++    public long getLong(String key, long defValue) {
++        return Settings.System.getLong(mContentResolver, key, defValue);
++    }
++
++    public String getString(String key, String defValue) {
++        String result = Settings.System.getString(mContentResolver, key);
++        return result == null ? defValue : result;
++    }
++
++    public void putBoolean(String key, boolean value) {
++        putInt(key, value ? 1 : 0);
++    }
++
++    public void putFloat(String key, float value) {
++        Settings.System.putFloat(mContentResolver, key, value);
++    }
++
++    public void putInt(String key, int value) {
++        Settings.System.putInt(mContentResolver, key, value);
++    }
++
++    public void putLong(String key, long value) {
++        Settings.System.putLong(mContentResolver, key, value);
++    }
++
++    public void putString(String key, String value) {
++        Settings.System.putString(mContentResolver, key, value);
++    }
++
++}
+

@@ -1,4 +1,4 @@
-From d54e94a6ec5b720e25f91808bda2ec27f125ccd2 Mon Sep 17 00:00:00 2001
+From b52d56da04b6f873aeb11db0f95d257ceffe3adb Mon Sep 17 00:00:00 2001
 From: Rishawn <70256146+Stealth1226@users.noreply.github.com>
 Date: Mon, 10 Jan 2022 09:47:15 +0530
 Subject: [PATCH] base: Allow disabling ripple effect on unlock [1/2]
@@ -9,35 +9,77 @@ neobuddy89:
 ArrowOS:
 * Add keys into backup and validators.
 
+Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
 Change-Id: Idecaa59547159d0a2b0ecdb55a207377bd466710
 ---
  core/java/android/provider/Settings.java                 | 6 ++++++
- .../android/provider/settings/backup/SystemSettings.java | 1 +
+ .../android/provider/settings/backup/SystemSettings.java | 2 ++
  .../settings/validators/SystemSettingsValidators.java    | 1 +
  .../com/android/systemui/biometrics/AuthRippleView.kt    | 9 ++++++++-
- 4 files changed, 16 insertions(+), 1 deletion(-)
+ 4 files changed, 17 insertions(+), 1 deletion(-)
 
+diff --git a/core/java/android/provider/Settings.java b/core/java/android/provider/Settings.java
+index eda4ac794025..03c5937bfa1e 100644
+--- a/core/java/android/provider/Settings.java
++++ b/core/java/android/provider/Settings.java
+@@ -5539,6 +5539,12 @@ public final class Settings {
+          * the setting value. See an example above.
+          */
+ 
++        /**
++         * Whether to enable the ripple animation on fingerprint unlock
++         * @hide
++         */
++        public static final String ENABLE_RIPPLE_EFFECT = "enable_ripple_effect";
++
+         /**
+          * Keys we no longer back up under the current schema, but want to continue to
+          * process when restoring historical backup datasets.
+diff --git a/packages/SettingsProvider/src/android/provider/settings/backup/SystemSettings.java b/packages/SettingsProvider/src/android/provider/settings/backup/SystemSettings.java
+index a6bfc408be7e..041a4b906dea 100644
+--- a/packages/SettingsProvider/src/android/provider/settings/backup/SystemSettings.java
++++ b/packages/SettingsProvider/src/android/provider/settings/backup/SystemSettings.java
+@@ -89,5 +89,7 @@ public class SystemSettings {
+         Settings.System.DISPLAY_COLOR_MODE,
+         Settings.System.ALARM_ALERT,
+         Settings.System.NOTIFICATION_LIGHT_PULSE,
++        // Evolution X additions
++        Settings.System.ENABLE_RIPPLE_EFFECT,
+     };
+ }
+diff --git a/packages/SettingsProvider/src/android/provider/settings/validators/SystemSettingsValidators.java b/packages/SettingsProvider/src/android/provider/settings/validators/SystemSettingsValidators.java
+index 310561e5b819..c8b4253a3169 100644
+--- a/packages/SettingsProvider/src/android/provider/settings/validators/SystemSettingsValidators.java
++++ b/packages/SettingsProvider/src/android/provider/settings/validators/SystemSettingsValidators.java
+@@ -201,6 +201,7 @@ public class SystemSettingsValidators {
+                     }
+                 });
+         VALIDATORS.put(System.WIFI_STATIC_IP, LENIENT_IP_ADDRESS_VALIDATOR);
++        VALIDATORS.put(System.ENABLE_RIPPLE_EFFECT, BOOLEAN_VALIDATOR);
+         VALIDATORS.put(System.WIFI_STATIC_GATEWAY, LENIENT_IP_ADDRESS_VALIDATOR);
+         VALIDATORS.put(System.WIFI_STATIC_NETMASK, LENIENT_IP_ADDRESS_VALIDATOR);
+         VALIDATORS.put(System.WIFI_STATIC_DNS1, LENIENT_IP_ADDRESS_VALIDATOR);
 diff --git a/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt b/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt
-index 378ae14f0327..437d269bf254 100644
+index c93fe6ac9f34..d30445f09581 100644
 --- a/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt
 +++ b/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt
 @@ -24,6 +24,8 @@ import android.graphics.Canvas
  import android.graphics.Color
  import android.graphics.Paint
- import android.graphics.PointF
+ import android.graphics.Point
 +import android.os.UserHandle
-+import lineageos.providers.LineageSettings;
++import android.provider.Settings
  import android.util.AttributeSet
  import android.view.View
  import android.view.animation.PathInterpolator
-@@ -263,7 +265,12 @@ class AuthRippleView(context: Context?, attrs: AttributeSet?) : View(context, at
+@@ -262,7 +264,12 @@ class AuthRippleView(context: Context?, attrs: AttributeSet?) : View(context, at
       * Ripple that bursts outwards from the position of the sensor to the edges of the screen
       */
      fun startUnlockedRipple(onAnimationEnd: Runnable?) {
 -        if (unlockedRippleInProgress) {
-+        val enableRipple = LineageSettings.System.getIntForUser(
++        val enableRipple = Settings.System.getIntForUser(
 +            context.contentResolver,
-+            LineageSettings.System.ENABLE_RIPPLE_EFFECT, 1,
++            Settings.System.ENABLE_RIPPLE_EFFECT, 1,
 +            UserHandle.USER_CURRENT) == 1
 +
 +        if (unlockedRippleInProgress || !enableRipple) {
@@ -45,5 +87,5 @@ index 378ae14f0327..437d269bf254 100644
          }
  
 -- 
-2.39.0
+2.40.0
 
