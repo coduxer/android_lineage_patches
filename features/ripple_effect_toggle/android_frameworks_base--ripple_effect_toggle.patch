@@ -59,33 +59,51 @@ index 310561e5b819..c8b4253a3169 100644
          VALIDATORS.put(System.WIFI_STATIC_GATEWAY, LENIENT_IP_ADDRESS_VALIDATOR);
          VALIDATORS.put(System.WIFI_STATIC_NETMASK, LENIENT_IP_ADDRESS_VALIDATOR);
          VALIDATORS.put(System.WIFI_STATIC_DNS1, LENIENT_IP_ADDRESS_VALIDATOR);
-diff --git a/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt b/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt
-index c93fe6ac9f34..d30445f09581 100644
---- a/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt
-+++ b/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleView.kt
-@@ -24,6 +24,8 @@ import android.graphics.Canvas
- import android.graphics.Color
- import android.graphics.Paint
+diff --git a/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleController.kt b/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleController.kt
+index 4fee0837a52ce..57da2bf259bf1 100644
+--- a/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleController.kt
++++ b/packages/SystemUI/src/com/android/systemui/biometrics/AuthRippleController.kt
+@@ -23,6 +23,8 @@ import android.content.Context
  import android.graphics.Point
+ import android.hardware.biometrics.BiometricFingerprintConstants
+ import android.hardware.biometrics.BiometricSourceType
 +import android.os.UserHandle
 +import android.provider.Settings
- import android.util.AttributeSet
- import android.view.View
- import android.view.animation.PathInterpolator
-@@ -262,7 +264,12 @@ class AuthRippleView(context: Context?, attrs: AttributeSet?) : View(context, at
-      * Ripple that bursts outwards from the position of the sensor to the edges of the screen
-      */
-     fun startUnlockedRipple(onAnimationEnd: Runnable?) {
--        if (unlockedRippleInProgress) {
-+        val enableRipple = Settings.System.getIntForUser(
-+            context.contentResolver,
-+            Settings.System.ENABLE_RIPPLE_EFFECT, 1,
-+            UserHandle.USER_CURRENT) == 1
-+
-+        if (unlockedRippleInProgress || !enableRipple) {
-             return // Ignore if ripple effect is already playing
-         }
+ import androidx.annotation.VisibleForTesting
+ import com.android.keyguard.KeyguardUpdateMonitor
+ import com.android.keyguard.KeyguardUpdateMonitorCallback
+@@ -85,6 +87,10 @@ class AuthRippleController @Inject constructor(
+     private var udfpsController: UdfpsController? = null
+     private var udfpsRadius: Float = -1f
  
--- 
-2.40.0
-
++    private val isRippleEnabled: Boolean
++        get() = Settings.System.getIntForUser(context.contentResolver,
++            Settings.System.ENABLE_RIPPLE_EFFECT, 1, UserHandle.USER_CURRENT) == 1
++
+     override fun onInit() {
+         mView.setAlphaInDuration(sysuiContext.resources.getInteger(
+                 R.integer.auth_ripple_alpha_in_duration).toLong())
+@@ -158,6 +164,8 @@ class AuthRippleController @Inject constructor(
+     }
+ 
+     private fun showUnlockedRipple() {
++        if (!isRippleEnabled) return
++
+         notificationShadeWindowController.setForcePluginOpen(true, this)
+         val lightRevealScrim = centralSurfaces.lightRevealScrim
+         if (statusBarStateController.isDozing || biometricUnlockController.isWakeAndUnlock) {
+@@ -177,6 +185,14 @@ class AuthRippleController @Inject constructor(
+     }
+ 
+     override fun onKeyguardFadingAwayChanged() {
++        if (!isRippleEnabled) {
++            // reset and hide the scrim so it doesn't appears on
++            // the next notification shade usage
++            centralSurfaces.lightRevealScrim?.revealAmount = 1f
++            startLightRevealScrimOnKeyguardFadingAway = false
++            return
++        }
++
+         if (keyguardStateController.isKeyguardFadingAway) {
+             val lightRevealScrim = centralSurfaces.lightRevealScrim
+             if (startLightRevealScrimOnKeyguardFadingAway && lightRevealScrim != null) {
