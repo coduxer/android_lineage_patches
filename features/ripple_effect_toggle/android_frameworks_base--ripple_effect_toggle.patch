@@ -92,10 +92,10 @@ index 4fee0837a52ce..57da2bf259bf1 100644
          notificationShadeWindowController.setForcePluginOpen(true, this)
          val lightRevealScrim = centralSurfaces.lightRevealScrim
          if (statusBarStateController.isDozing || biometricUnlockController.isWakeAndUnlock) {
-@@ -177,6 +185,14 @@ class AuthRippleController @Inject constructor(
-     }
+@@ -189,6 +197,14 @@ class AuthRippleController @Inject constructor(
+             return
+         }
  
-     override fun onKeyguardFadingAwayChanged() {
 +        if (!isRippleEnabled) {
 +            // reset and hide the scrim so it doesn't appears on
 +            // the next notification shade usage
