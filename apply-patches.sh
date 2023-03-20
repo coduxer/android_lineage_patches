@@ -24,5 +24,7 @@ apply-patch "vendor/lineage" "$SCRIPT_DIR/android_vendor_lineage--bromite.patch"
 
 clean-repo "lineage-sdk"
 clean-repo "packages/apps/Settings"
+apply-patch "packages/apps/Settings" "$SCRIPT_DIR/features_framework/android_packages_apps_Settings--system_setting_switch_preference.patch"
 "$SCRIPT_DIR/features/3_fingers_swipe_screenshot/apply-patch.sh"
 "$SCRIPT_DIR/features/cutout_force_full_screen/apply-patch.sh"
+"$SCRIPT_DIR/features/ripple_effect_toggle/apply-patch.sh"
