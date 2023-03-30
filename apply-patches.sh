@@ -20,7 +20,7 @@ apply-patch "system/core" "$SCRIPT_DIR/android_system_core-safetynetfix.patch"
 
 clean-repo "vendor/lineage"
 # apply-patch "vendor/lineage" "$SCRIPT_DIR/android_vendor_lineage-custom-display-interface.patch"
-apply-patch "vendor/lineage" "$SCRIPT_DIR/android_vendor_lineage--bromite.patch"
+apply-patch "vendor/lineage" "$SCRIPT_DIR/android_vendor_lineage--webviews.patch"
 
 clean-repo "lineage-sdk"
 clean-repo "packages/apps/Settings"
