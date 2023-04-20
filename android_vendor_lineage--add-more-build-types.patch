@@ -1,0 +1,13 @@
+diff --git a/config/version.mk b/config/version.mk
+index 0d15a03e..ddc0738f 100644
+--- a/config/version.mk
++++ b/config/version.mk
+@@ -18,7 +18,7 @@ ifndef LINEAGE_BUILDTYPE
+ endif
+ 
+ # Filter out random types, so it'll reset to UNOFFICIAL
+-ifeq ($(filter RELEASE NIGHTLY SNAPSHOT EXPERIMENTAL,$(LINEAGE_BUILDTYPE)),)
++ifeq ($(filter RELEASE NIGHTLY SNAPSHOT EXPERIMENTAL VANILLA GAPPS MICROG,$(LINEAGE_BUILDTYPE)),)
+     LINEAGE_BUILDTYPE := UNOFFICIAL
+     LINEAGE_EXTRAVERSION :=
+ endif
