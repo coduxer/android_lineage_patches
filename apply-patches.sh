@@ -29,3 +29,8 @@ apply-patch "packages/apps/Settings" "$SCRIPT_DIR/features_framework/android_pac
 "$SCRIPT_DIR/features/3_fingers_swipe_screenshot/apply-patch.sh"
 "$SCRIPT_DIR/features/cutout_force_full_screen/apply-patch.sh"
 "$SCRIPT_DIR/features/ripple_effect_toggle/apply-patch.sh"
+
+if [ -f "vendor/partner_gms/products/gms.mk" ]; then
+    clean-repo "vendor/partner_gms"
+    apply-patch "vendor/partner_gms" "$SCRIPT_DIR/android_vendor_partner_gms--microg-soong-namespace.patch"
+fi

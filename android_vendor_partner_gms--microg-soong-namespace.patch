@@ -1,0 +1,22 @@
+diff --git a/Android.bp b/Android.bp
+new file mode 100644
+index 0000000..9515b25
+--- /dev/null
++++ b/Android.bp
+@@ -0,0 +1,2 @@
++soong_namespace {
++}
+diff --git a/products/gms.mk b/products/gms.mk
+index dfbd889..fd2a554 100644
+--- a/products/gms.mk
++++ b/products/gms.mk
+@@ -1,3 +1,4 @@
++PRODUCT_SOONG_NAMESPACES += vendor/partner_gms
+ PRODUCT_PACKAGES += \
+ 	GmsCore \
+ 	GsfProxy \
+@@ -7,3 +8,4 @@ PRODUCT_PACKAGES += \
+ 	FDroid \
+ 	FDroidPrivilegedExtension \
+ 	additional_repos.xml
++
