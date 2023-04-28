@@ -1,0 +1,1 @@
+https://coduxer.github.io/android_lineage_ota/{device}/L20/ota.json

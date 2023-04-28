@@ -34,3 +34,6 @@ if [ -f "vendor/microg/products/gms.mk" ]; then
     clean-repo "vendor/microg"
     apply-patch "vendor/microg" "$SCRIPT_DIR/android_vendor_partner_gms--microg-soong-namespace.patch"
 fi
+
+clean-repo "packages/apps/Updater"
+"$SCRIPT_DIR/ota/apply-ota-address.sh"
