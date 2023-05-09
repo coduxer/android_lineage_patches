@@ -13,5 +13,5 @@ clean-repo "system/core"
 clean-repo "vendor/lineage"
 clean-repo "lineage-sdk"
 clean-repo "packages/apps/Settings"
+clean-repo "packages/apps/Updater"
 clean-repo "vendor/partner_gms"
-
