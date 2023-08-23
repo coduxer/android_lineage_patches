@@ -72,17 +72,17 @@ index 4fee0837a52ce..57da2bf259bf1 100644
  import androidx.annotation.VisibleForTesting
  import com.android.keyguard.KeyguardUpdateMonitor
  import com.android.keyguard.KeyguardUpdateMonitorCallback
-@@ -85,6 +87,10 @@ class AuthRippleController @Inject constructor(
+@@ -90,6 +92,10 @@ class AuthRippleController @Inject constructor(
      private var udfpsController: UdfpsController? = null
      private var udfpsRadius: Float = -1f
  
 +    private val isRippleEnabled: Boolean
 +        get() = Settings.System.getIntForUser(context.contentResolver,
-+            Settings.System.ENABLE_RIPPLE_EFFECT, 0, UserHandle.USER_CURRENT) == 1
++            Settings.System.ENABLE_RIPPLE_EFFECT, 1, UserHandle.USER_CURRENT) == 1
 +
-     override fun onInit() {
-         mView.setAlphaInDuration(sysuiContext.resources.getInteger(
-                 R.integer.auth_ripple_alpha_in_duration).toLong())
+     @VisibleForTesting
+     public override fun onViewAttached() {
+         authController.addCallback(authControllerCallback)
 @@ -158,6 +164,8 @@ class AuthRippleController @Inject constructor(
      }
  
