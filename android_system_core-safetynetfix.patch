@@ -81,42 +81,6 @@ index d23c333d1bb..257fa4e10cd 100644
      // If arguments are passed both on the command line and in DT,
      // properties set in DT always have priority over the command-line ones.
 
-From fb0d22911a868d3e7413cd39c7897b1a04d07738 Mon Sep 17 00:00:00 2001
-From: Danny Lin <danny@kdrag0n.dev>
-Date: Tue, 12 Oct 2021 02:32:41 -0700
-Subject: [PATCH 3/6] fastboot: Revert to Android 11 method of checking lock
- status
-
-Now that we're setting system-wide properties for SafetyNet, which
-includes ro.boot.verifiedbootstate=green, fastbootd always detects the
-bootloader as being locked. Revert to the Android 11 method of reading
-directly from the kernel cmdline to work arround the issue.
-
-Change-Id: I57f6d48acddb29748778053edf354d7bd8994bd7
-Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
----
- fastboot/device/utility.cpp | 7 ++++++-
- 1 file changed, 6 insertions(+), 1 deletion(-)
-
-diff --git a/fastboot/device/utility.cpp b/fastboot/device/utility.cpp
-index 3302c4310c9..a14eea37662 100644
---- a/fastboot/device/utility.cpp
-+++ b/fastboot/device/utility.cpp
-@@ -196,7 +196,12 @@ std::vector<std::string> ListPartitions(FastbootDevice* device) {
- }
- 
- bool GetDeviceLockStatus() {
--    return android::base::GetProperty("ro.boot.verifiedbootstate", "") != "orange";
-+    std::string cmdline;
-+    // Return lock status true if unable to read kernel command line.
-+    if (!android::base::ReadFileToString("/proc/cmdline", &cmdline)) {
-+        return true;
-+    }
-+    return cmdline.find("androidboot.verifiedbootstate=orange") == std::string::npos;
- }
- 
- bool UpdateAllPartitionMetadata(FastbootDevice* device, const std::string& super_name,
-
 From ee32a6192c9c910b971b361a03176b04a3f3a211 Mon Sep 17 00:00:00 2001
 From: Alex Naidis <alex.naidis@linux.com>
 Date: Sun, 9 Apr 2017 01:29:27 +0200
@@ -316,38 +280,3 @@ index c41c88462ce..44ca246328d 100644
      InitPropertySet("ro.vendor.boot.warranty_bit", "0");
      InitPropertySet("ro.vendor.warranty_bit", "0");
      InitPropertySet("vendor.boot.vbmeta.device_state", "locked");
-
-From 99a61b22b7a0ffe264489591bf4f0a8629367417 Mon Sep 17 00:00:00 2001
-From: Matt Filetto <matt.filetto@gmail.com>
-Date: Sun, 23 Jan 2022 06:05:32 -0800
-Subject: [PATCH] fastboot: stop trying to determine bootloader unlock status
- from /proc/cmdline
-
-* raven (and others i'm sure) still has no read access to /proc/cmdline even
-  with an unlocked bootloader. This check was failing and broke writing to
-  partitions.
-
-Signed-off-by: Matt Filetto <matt.filetto@gmail.com>
-Signed-off-by: Pranav Vashi <neobuddy89@gmail.com>
----
- fastboot/device/utility.cpp | 7 +------
- 1 file changed, 1 insertion(+), 6 deletions(-)
-
-diff --git a/fastboot/device/utility.cpp b/fastboot/device/utility.cpp
-index a14eea37662..3302c4310c9 100644
---- a/fastboot/device/utility.cpp
-+++ b/fastboot/device/utility.cpp
-@@ -196,12 +196,7 @@ std::vector<std::string> ListPartitions(FastbootDevice* device) {
- }
- 
- bool GetDeviceLockStatus() {
--    std::string cmdline;
--    // Return lock status true if unable to read kernel command line.
--    if (!android::base::ReadFileToString("/proc/cmdline", &cmdline)) {
--        return true;
--    }
--    return cmdline.find("androidboot.verifiedbootstate=orange") == std::string::npos;
-+    return android::base::GetProperty("ro.boot.verifiedbootstate", "") != "orange";
- }
- 
- bool UpdateAllPartitionMetadata(FastbootDevice* device, const std::string& super_name
