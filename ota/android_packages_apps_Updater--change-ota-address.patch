@@ -1,7 +1,7 @@
-diff --git a/res/values/strings.xml b/res/values/strings.xml
-index bfb2627..88b3c9b 100644
---- a/res/values/strings.xml
-+++ b/res/values/strings.xml
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 18e3ede..14c579d 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
 @@ -32,7 +32,7 @@
            {type} - Build type
            {incr} - Incremental version
